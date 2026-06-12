@@ -1,0 +1,22 @@
+{
+  "projectName": "string",
+  "buildTool": "maven | gradle",
+  "modules": [
+    {
+      "name": "string",
+      "path": "string",
+      "dependencies": ["string"]
+    }
+  ],
+  "techStack": {
+    "spring": { "version": "string", "features": ["string"] },
+    "rmb": { "version": "string", "enabled": "boolean" },
+    "middleware": ["string"]
+  },
+  "packageTree": {
+    "root": "string",
+    "children": [
+      { "name": "string", "children": [] }
+    ]
+  }
+}

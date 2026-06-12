@@ -1,0 +1,23 @@
+{
+  "layers": [
+    {
+      "name": "string",
+      "type": "controller | service | dao | entity | dto | config | util | rmb-client | rmb-controller",
+      "packages": ["string"],
+      "classes": [
+        {
+          "name": "string",
+          "package": "string",
+          "annotations": ["string"],
+          "file": "string"
+        }
+      ],
+      "subLayers": [
+        { "name": "string", "packages": ["string"] }
+      ]
+    }
+  ],
+  "layerDependencies": [
+    { "from": "string", "to": "string", "type": "allowed | violation" }
+  ]
+}

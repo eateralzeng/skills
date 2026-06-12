@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Data Model Summary",
+  "description": "Java 项目数据模型扫描结果汇总",
+  "type": "object",
+  "required": ["version", "project", "scanDate", "sourceStats", "tables", "domains"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "文档版本",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "project": {
+      "type": "string",
+      "description": "项目名称"
+    },
+    "projectPath": {
+      "type": "string",
+      "description": "项目根目录路径"
+    },
+    "scanDate": {
+      "type": "string",
+      "format": "date-time",
+      "description": "扫描日期时间"
+    },
+    "sourceStats": {
+      "type": "object",
+      "description": "源码统计",
+      "properties": {
+        "totalTables": {
+          "type": "integer",
+          "description": "数据库表总数"
+        },
+        "totalDomains": {
+          "type": "integer",
+          "description": "业务域总数"
+        },
+        "entityClasses": {
+          "type": "integer",
+          "description": "Entity 类数量"
+        },
+        "mapperXmlFiles": {
+          "type": "integer",
+          "description": "Mapper XML 文件数量"
+        }
+      }
+    },
+    "tables": {
+      "type": "array",
+      "description": "所有数据库表列表",
+      "items": {
+        "type": "object",
+        "required": ["tableName", "primaryKey", "fieldCount", "domains", "crudOperations", "outputFile"],
+        "properties": {
+          "tableName": {
+            "type": "string",
+            "description": "数据库表名（下划线格式）"
+          },
+          "entityClass": {
+            "type": "string",
+            "description": "Entity 类全限定名"
+          },
+          "mapperXml": {
+            "type": "string",
+            "description": "Mapper XML 文件名"
+          },
+          "daoClass": {
+            "type": "string",
+            "description": "DAO 接口类全限定名"
+          },
+          "module": {
+            "type": "string",
+            "description": "所属代码模块"
+          },
+          "primaryKey": {
+            "type": "array",
+            "description": "主键字段列表",
+            "items": { "type": "string" }
+          },
+          "fieldCount": {
+            "type": "integer",
+            "description": "字段数量"
+          },
+          "domains": {
+            "type": "array",
+            "description": "所属域列表",
+            "items": { "type": "string" }
+          },
+          "primaryDomain": {
+            "type": "string",
+            "description": "主要归属域"
+          },
+          "crudOperations": {
+            "type": "object",
+            "description": "CRUD 操作统计",
+            "properties": {
+              "insert": { "type": "integer", "description": "INSERT 操作数" },
+              "select": { "type": "integer", "description": "SELECT 操作数" },
+              "update": { "type": "integer", "description": "UPDATE 操作数" },
+              "delete": { "type": "integer", "description": "DELETE 操作数" }
+            }
+          },
+          "statusFields": {
+            "type": "array",
+            "description": "状态字段列表",
+            "items": { "type": "string" }
+          },
+          "hasLifecycle": {
+            "type": "boolean",
+            "description": "是否有显著状态生命周期"
+          },
+          "relatedTables": {
+            "type": "array",
+            "description": "关联表列表",
+            "items": {
+              "type": "object",
+              "properties": {
+                "table": { "type": "string", "description": "关联表名" },
+                "relation": { "type": "string", "description": "关系类型（1:1, 1:N, N:1, N:N）" },
+                "joinKey": { "type": "string", "description": "关联键" }
+              }
+            }
+          },
+          "outputFile": {
+            "type": "string",
+            "description": "输出文件相对路径"
+          }
+        }
+      }
+    },
+    "domains": {
+      "type": "array",
+      "description": "所有业务域列表",
+      "items": {
+        "type": "object",
+        "required": ["domainId", "name", "modules", "tables", "outputFile"],
+        "properties": {
+          "domainId": {
+            "type": "string",
+            "description": "域标识（英文短横线格式）"
+          },
+          "name": {
+            "type": "string",
+            "description": "域中文名称"
+          },
+          "modules": {
+            "type": "array",
+            "description": "涉及的代码模块",
+            "items": { "type": "string" }
+          },
+          "tables": {
+            "type": "array",
+            "description": "包含的数据库表",
+            "items": { "type": "string" }
+          },
+          "crossDomainRelations": {
+            "type": "array",
+            "description": "跨域关系",
+            "items": {
+              "type": "object",
+              "properties": {
+                "targetDomain": { "type": "string", "description": "目标域标识" },
+                "sharedTables": {
+                  "type": "array",
+                  "description": "共享的表",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          },
+          "outputFile": {
+            "type": "string",
+            "description": "输出文件相对路径"
+          }
+        }
+      }
+    },
+    "tableRelations": {
+      "type": "array",
+      "description": "表间关系列表",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fromTable": { "type": "string", "description": "源表" },
+          "toTable": { "type": "string", "description": "目标表" },
+          "relation": { "type": "string", "description": "关系类型" },
+          "joinKey": { "type": "string", "description": "关联键" },
+          "description": { "type": "string", "description": "关系说明" }
+        }
+      }
+    }
+  }
+}

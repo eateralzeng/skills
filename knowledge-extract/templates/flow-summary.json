@@ -1,0 +1,74 @@
+{
+  "version": "{{version}}",
+  "project": "{{project_name}}",
+  "projectPath": "{{project_path}}",
+  "scanDate": "{{scan_date}}",
+  "lastUpdated": "{{last_updated}}",
+  "architectureDoc": {{has_architecture_doc}},
+  "totalFlows": {{total_flows}},
+  "statistics": {
+    "webPageCount": {{web_page_count}},
+    "controllerCount": {{controller_count}},
+    "rmbCount": {{rmb_count}},
+    "jobCount": {{job_count}},
+    "totalTables": {{total_tables}},
+    "externalSystems": {{external_systems_count}},
+    "mergedFlowCount": {{merged_flow_count}},
+    "standaloneFlowCount": {{standalone_flow_count}},
+    "totalHandlers": {{total_handlers}},
+    "rmbBridgeSuccessCount": {{rmb_bridge_success_count}},
+    "externalSenderCount": {{external_sender_count}}
+  },
+  "flows": [
+    {
+      "id": "{{flow_id}}",
+      "name": "{{flow_name}}",
+      "flowCategory": "{{flow_category}}",
+      "type": "{{flow_type}}",
+      "typeLabel": "{{flow_type_label}}",
+      "entryClass": "{{entry_class_fqn}}",
+      "entryPackage": "{{entry_package}}",
+      "entryMethod": "{{entry_method}}",
+      "filePath": "{{file_path}}",
+      "httpMethod": "{{http_method}}",
+      "apiPath": "{{api_path}}",
+      "businessDescription": "{{business_description}}",
+      "rmbBridge": {
+        "senderModule": "{{sender_module}}",
+        "receiverModule": "{{receiver_module}}",
+        "topic": "{{rmb_topic}}",
+        "mode": "{{rmb_mode}}",
+        "senderChain": {
+          "layer": "RMB_CLIENT",
+          "className": "{{rmb_client_class}}",
+          "methodName": "{{rmb_client_method}}"
+        },
+        "receiverChain": {
+          "layer": "RMB_CONTROLLER",
+          "className": "{{rmb_controller_class}}",
+          "package": "{{rmb_controller_package}}",
+          "methodName": "{{rmb_controller_method}}"
+        }
+      },
+      "chain": [
+        {"layer": "ENTRY", "className": "{{entry_class}}", "methodName": "{{entry_method}}"},
+        {"layer": "SERVICE", "className": "{{service_class}}", "methodName": "{{service_method}}", "description": "{{service_description}}"},
+        {"layer": "RMB_CLIENT", "className": "{{rmb_client_class}}", "methodName": "{{rmb_client_method}}", "description": "{{rmb_client_description}}", "rmbTopic": "{{rmb_topic_constant}}", "rmbTopicMode": "{{rmb_mode}}"},
+        {"layer": "RMB_CONTROLLER", "className": "{{rmb_controller_class}}", "methodName": "{{rmb_controller_method}}", "description": "{{rmb_controller_description}}", "receiverModule": "{{receiver_module}}"}
+      ],
+      "databaseOperations": [
+        {"table": "{{table_name}}", "operation": "{{db_operation}}", "via": "{{dao_method}}", "condition": "{{operation_condition}}"}
+      ],
+      "externalCalls": [
+        {"target": "{{external_target}}", "method": "{{external_method}}", "description": "{{external_description}}"}
+      ]
+    }
+  ],
+  "tableIndex": [
+    {
+      "table": "{{table_name}}",
+      "operations": {"select": {{select_count}}, "insert": {{insert_count}}, "update": {{update_count}}, "delete": {{delete_count}}},
+      "relatedFlows": ["{{related_flow_ids}}"]
+    }
+  ]
+}

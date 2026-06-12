@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Flow Detail - Handler 级别调用详情",
+  "description": "每个 handler/endpoint 单独一条 JSON 条目，包含完整调用链、数据库操作、RMB 桥接引用",
+  "type": "object",
+  "required": ["handlers"],
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "项目名称"
+    },
+    "scanDate": {
+      "type": "string",
+      "format": "date-time",
+      "description": "扫描日期时间"
+    },
+    "totalHandlers": {
+      "type": "integer",
+      "description": "Handler 总数"
+    },
+    "handlers": {
+      "type": "array",
+      "description": "Handler 条目列表",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "type", "module", "chain", "databaseOperations"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Handler ID，格式 H001, H002...",
+            "pattern": "^H[0-9]{3,}$"
+          },
+          "name": {
+            "type": "string",
+            "description": "Handler 名称（类名.方法名）"
+          },
+          "parentFlowId": {
+            "type": "string",
+            "description": "所属的 Flow ID（对应 flow-summary.json 中的 flow.id）",
+            "pattern": "^[0-9]{3}$"
+          },
+          "type": {
+            "type": "string",
+            "description": "Handler 类型",
+            "enum": ["CONTROLLER_ENDPOINT", "RMB_HANDLER", "JOB_METHOD"]
+          },
+          "module": {
+            "type": "string",
+            "description": "所属模块名称（如 jrp, mss, farms, pre 等）"
+          },
+          "className": {
+            "type": "string",
+            "description": "入口类完整类名"
+          },
+          "packageName": {
+            "type": "string",
+            "description": "入口类包路径"
+          },
+          "methodName": {
+            "type": "string",
+            "description": "入口方法名"
+          },
+          "methodSignature": {
+            "type": "string",
+            "description": "完整方法签名"
+          },
+          "filePath": {
+            "type": "string",
+            "description": "文件相对路径"
+          },
+          "businessDescription": {
+            "type": "string",
+            "description": "业务描述"
+          },
+          "chain": {
+            "type": "array",
+            "description": "完整调用链路",
+            "items": {
+              "type": "object",
+              "required": ["layer", "className", "methodName"],
+              "properties": {
+                "layer": {
+                  "type": "string",
+                  "description": "调用层级",
+                  "enum": ["ENTRY", "SERVICE", "REPOSITORY", "MAPPER", "EXTERNAL", "RMB_CLIENT", "RMB_CONTROLLER"]
+                },
+                "className": {
+                  "type": "string",
+                  "description": "类名"
+                },
+                "packageName": {
+                  "type": "string",
+                  "description": "包路径"
+                },
+                "methodName": {
+                  "type": "string",
+                  "description": "方法名"
+                },
+                "methodSignature": {
+                  "type": "string",
+                  "description": "完整方法签名"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "调用描述"
+                },
+                "condition": {
+                  "type": "string",
+                  "description": "触发条件（分支场景）"
+                },
+                "isBranch": {
+                  "type": "boolean",
+                  "description": "是否为分支调用"
+                }
+              }
+            }
+          },
+          "databaseOperations": {
+            "type": "array",
+            "description": "数据库操作列表",
+            "items": {
+              "type": "object",
+              "required": ["table", "operation", "via"],
+              "properties": {
+                "table": {
+                  "type": "string",
+                  "description": "数据库表名"
+                },
+                "operation": {
+                  "type": "string",
+                  "description": "操作类型",
+                  "enum": ["SELECT", "INSERT", "UPDATE", "DELETE"]
+                },
+                "via": {
+                  "type": "string",
+                  "description": "通过哪个 Repository/Mapper 方法"
+                },
+                "condition": {
+                  "type": "string",
+                  "description": "触发条件"
+                },
+                "affectedFields": {
+                  "type": "array",
+                  "description": "影响的字段列表",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          },
+          "rmbBridge": {
+            "type": "object",
+            "description": "RMB 桥接信息（仅 RMB 相关 handler 有此字段）",
+            "properties": {
+              "topic": {
+                "type": "string",
+                "description": "RMB Topic 名称"
+              },
+              "mode": {
+                "type": "string",
+                "description": "通信模式",
+                "enum": ["SYNC", "ASYNC"]
+              },
+              "role": {
+                "type": "string",
+                "description": "当前 handler 在 RMB 桥接中的角色",
+                "enum": ["SENDER", "RECEIVER"]
+              },
+              "direction": {
+                "type": "string",
+                "description": "桥接方向描述（如 'Controller → RMB → Handler'）",
+                "enum": ["SEND", "RECEIVE", "BOTH"]
+              },
+              "matchingHandlerId": {
+                "type": "string",
+                "description": "对端 Handler ID，用于双向引用（如 H003 → H015）",
+                "pattern": "^H[0-9]{3,}$"
+              },
+              "matchingHandlerName": {
+                "type": "string",
+                "description": "对端 Handler 名称"
+              },
+              "senderModule": {
+                "type": "string",
+                "description": "发送方模块名称"
+              },
+              "receiverModule": {
+                "type": "string",
+                "description": "接收方模块名称"
+              },
+              "isExternal": {
+                "type": "boolean",
+                "description": "对端是否为外部系统（不在本代码库中）"
+              },
+              "externalSystem": {
+                "type": "string",
+                "description": "外部系统名称（仅 isExternal=true 时）"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

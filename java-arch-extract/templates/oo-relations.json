@@ -1,0 +1,26 @@
+{
+  "interfaces": [
+    {
+      "name": "string",
+      "package": "string",
+      "methods": ["string"],
+      "implementations": ["string"]
+    }
+  ],
+  "abstractClasses": [
+    {
+      "name": "string",
+      "package": "string",
+      "abstractMethods": ["string"],
+      "concreteSubclasses": ["string"]
+    }
+  ],
+  "relations": [
+    {
+      "from": "string",
+      "to": "string",
+      "type": "extends | implements | composition | dependency | association",
+      "detail": "string"
+    }
+  ]
+}

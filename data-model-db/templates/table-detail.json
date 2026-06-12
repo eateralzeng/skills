@@ -1,0 +1,12 @@
+{
+  "tableName": "",
+  "source": "",
+  "mapperNamespaces": [],
+  "coverage": "",
+  "statementCount": {},
+  "ownership": {"services": [], "daos": []},
+  "operations": {"select": [], "insert": [], "update": [], "delete": []},
+  "stateTransitions": [],
+  "flowCoverage": {"status": "", "flows": [], "orphanOperations": []},
+  "diffs": {"ownership": [], "crud": [], "state": []}
+}

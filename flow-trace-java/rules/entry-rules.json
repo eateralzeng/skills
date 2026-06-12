@@ -1,0 +1,70 @@
+{
+  "version": "1.0",
+  "description": "入口扫描规则配置（机器可读）。与 entry-rules.md 对应，规则变更时需同步修改本文件。",
+  "noise": {
+    "globExclusions": [
+      "**/*DTO.java",
+      "**/*Vo.java",
+      "**/*VO.java",
+      "**/*Test.java",
+      "**/*Tests.java",
+      "**/test/**",
+      "**/thirdparty/**",
+      "**/generated/**",
+      "**/*Constant.java",
+      "**/*Enum.java",
+      "**/*Config.java",
+      "**/*Properties.java"
+    ],
+    "packageExclusions": [
+      "org.springframework.*",
+      "com.alibaba.*",
+      "lombok.*",
+      "javax.*"
+    ],
+    "classNameNoise": ["Advice", "Interceptor", "Exception", "Aspect"]
+  },
+  "entryTypes": [
+    {
+      "type": "controller",
+      "discovery": {
+        "grepPattern": "@(RestController|Controller)\\b",
+        "glob": "**/*.java"
+      },
+      "annotationMarkers": ["@RestController", "@Controller"],
+      "mappingAnnotations": ["@PostMapping", "@GetMapping", "@PutMapping", "@DeleteMapping", "@RequestMapping"]
+    },
+    {
+      "type": "rmb",
+      "discovery": {
+        "grepPattern": "@RmbController|com\\.webank\\.chameleon\\.frw\\.rmb",
+        "glob": "**/*.java"
+      },
+      "annotationMarkers": ["@RmbController"],
+      "topicAnnotation": "@RmbTopic"
+    },
+    {
+      "type": "job",
+      "discovery": [
+        {"grepPattern": "extends\\s+AbstractQuartzBean", "annotationLevel": "class"},
+        {"grepPattern": "@Scheduled", "annotationLevel": "method"},
+        {"grepPattern": "@XxlJob", "annotationLevel": "method"},
+        {"grepPattern": "@CronQuartzJob", "annotationLevel": "class"},
+        {"grepPattern": "implements\\s+(SimpleJob|DataflowJob)", "annotationLevel": "class"},
+        {"glob": "**/*Job.java", "annotationLevel": "infer"},
+        {"glob": "**/*Executor.java", "annotationLevel": "infer"},
+        {"glob": "**/*Task.java", "annotationLevel": "infer"}
+      ],
+      "inheritanceMethodMap": {
+        "QuartzJobBean": "executeInternal",
+        "AbstractQuartzJob": "executeInternal",
+        "SimpleTaskExecutor": "executeInternal",
+        "Job": "execute",
+        "SimpleJob": "execute",
+        "DataflowJob": "execute",
+        "ConcurrentTaskExecutor": "executeTask",
+        "CcpConcurrentTaskExecutor": "executeTaskInner"
+      }
+    }
+  ]
+}

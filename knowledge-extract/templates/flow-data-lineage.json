@@ -1,0 +1,58 @@
+{
+  "project": "{{project_name}}",
+  "scanDate": "{{scan_date}}",
+  "version": "{{version}}",
+  "totalTables": {{total_tables}},
+  "totalDependencies": {{total_dependencies}},
+  "tables": [
+    {
+      "tableName": "{{table_name}}",
+      "producers": [
+        {"flowId": "{{producer_flow_id}}", "flowName": "{{producer_flow_name}}", "operation": "INSERT"}
+      ],
+      "consumers": [
+        {"flowId": "{{consumer_flow_id}}", "flowName": "{{consumer_flow_name}}", "operation": "SELECT"}
+      ],
+      "updaters": [
+        {"flowId": "{{updater_flow_id}}", "flowName": "{{updater_flow_name}}", "operation": "UPDATE"}
+      ],
+      "deleters": [],
+      "dataFlows": [
+        {"source": "{{source_flow_id}}", "target": "{{target_flow_id}}", "type": "{{dependency_type}}", "description": "{{data_flow_description}}"}
+      ]
+    },
+    {
+      "tableName": "{{table_name_2}}",
+      "producers": [
+        {"flowId": "{{producer_flow_id}}", "flowName": "{{producer_flow_name}}", "operation": "INSERT"}
+      ],
+      "consumers": [
+        {"flowId": "{{consumer_flow_id}}", "flowName": "{{consumer_flow_name}}", "operation": "SELECT"}
+      ],
+      "updaters": [],
+      "deleters": [],
+      "dataFlows": [
+        {"source": "{{source_flow_id}}", "target": "{{target_flow_id}}", "type": "DATA_DEPENDENCY", "description": "{{data_flow_description}}"}
+      ]
+    }
+  ],
+  "implicitDependencies": [
+    {
+      "id": "{{dep_id}}",
+      "sourceFlowId": "{{source_flow_id}}",
+      "sourceFlowName": "{{source_flow_name}}",
+      "targetFlowId": "{{target_flow_id}}",
+      "targetFlowName": "{{target_flow_name}}",
+      "tableName": "{{shared_table}}",
+      "dependencyType": "{{dependency_type}}",
+      "description": "{{dependency_description}}",
+      "sourceOperation": "{{source_operation}}",
+      "targetOperation": "{{target_operation}}",
+      "severity": "{{risk_level}}"
+    }
+  ],
+  "flowIdMapping": {
+    "{{flow_id}}": {"name": "{{flow_name}}", "type": "{{flow_type}}"},
+    "{{flow_id_2}}": {"name": "{{flow_name_2}}", "type": "{{flow_type_2}}"}
+  }
+}

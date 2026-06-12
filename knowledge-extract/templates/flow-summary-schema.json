@@ -1,0 +1,271 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Flow Trace Summary",
+  "description": "Java 项目流程梳理结果汇总",
+  "type": "object",
+  "required": ["project", "scanDate", "totalFlows", "flows"],
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "项目名称"
+    },
+    "projectPath": {
+      "type": "string",
+      "description": "项目根目录路径"
+    },
+    "scanDate": {
+      "type": "string",
+      "format": "date-time",
+      "description": "扫描日期时间"
+    },
+    "architectureDoc": {
+      "type": "boolean",
+      "description": "是否存在架构文档"
+    },
+    "totalFlows": {
+      "type": "integer",
+      "description": "流程总数"
+    },
+    "statistics": {
+      "type": "object",
+      "description": "统计信息",
+      "properties": {
+        "webPageCount": { "type": "integer", "description": "Web 页面入口数" },
+        "controllerCount": { "type": "integer", "description": "Controller 入口数" },
+        "rmbCount": { "type": "integer", "description": "RMB 接收端入口数" },
+        "jobCount": { "type": "integer", "description": "Job 入口数" },
+        "totalTables": { "type": "integer", "description": "涉及的数据库表总数" },
+        "maxChainDepth": { "type": "integer", "description": "最深链路层级" },
+        "avgChainDepth": { "type": "number", "description": "平均链路层级" }
+      }
+    },
+    "flows": {
+      "type": "array",
+      "description": "所有流程列表",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "type", "entryClass", "entryMethod", "filePath", "chain", "databaseOperations"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "流程序号（如 001）",
+            "pattern": "^[0-9]{3}$"
+          },
+          "name": {
+            "type": "string",
+            "description": "流程名称"
+          },
+          "type": {
+            "type": "string",
+            "description": "入口类型",
+            "enum": ["WEB_PAGE", "CONTROLLER", "RMB", "JOB"]
+          },
+          "typeLabel": {
+            "type": "string",
+            "description": "入口类型中文标签"
+          },
+          "entryClass": {
+            "type": "string",
+            "description": "入口类完整类名"
+          },
+          "entryPackage": {
+            "type": "string",
+            "description": "入口类包路径"
+          },
+          "entryMethod": {
+            "type": "string",
+            "description": "入口方法签名"
+          },
+          "filePath": {
+            "type": "string",
+            "description": "文件相对路径"
+          },
+          "httpMethod": {
+            "type": "string",
+            "description": "HTTP 方法（仅 Controller/Web 页面入口）",
+            "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]
+          },
+          "apiPath": {
+            "type": "string",
+            "description": "API 路径（仅 Controller/Web 页面入口）"
+          },
+          "rmbTopic": {
+            "type": "string",
+            "description": "RMB Topic 名称（仅 RMB 入口）"
+          },
+          "rmbTopicMode": {
+            "type": "string",
+            "description": "RMB Topic 模式（仅 RMB 入口）",
+            "enum": ["SYNC", "ASYNC"]
+          },
+          "jobCron": {
+            "type": "string",
+            "description": "Job 调度配置（仅 Job 入口）"
+          },
+          "businessDescription": {
+            "type": "string",
+            "description": "业务描述"
+          },
+          "chain": {
+            "type": "array",
+            "description": "调用链路",
+            "items": {
+              "type": "object",
+              "required": ["layer", "className", "methodName"],
+              "properties": {
+                "layer": {
+                  "type": "string",
+                  "description": "调用层级",
+                  "enum": ["ENTRY", "SERVICE", "REPOSITORY", "EXTERNAL", "RMB_CLIENT", "RMB_CONTROLLER"]
+                },
+                "className": {
+                  "type": "string",
+                  "description": "类名"
+                },
+                "packageName": {
+                  "type": "string",
+                  "description": "包路径"
+                },
+                "methodName": {
+                  "type": "string",
+                  "description": "方法名"
+                },
+                "methodSignature": {
+                  "type": "string",
+                  "description": "完整方法签名"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "调用描述"
+                },
+                "condition": {
+                  "type": "string",
+                  "description": "触发条件（分支场景）"
+                },
+                "isBranch": {
+                  "type": "boolean",
+                  "description": "是否为分支调用"
+                }
+              }
+            }
+          },
+          "databaseOperations": {
+            "type": "array",
+            "description": "数据库操作列表",
+            "items": {
+              "type": "object",
+              "required": ["table", "operation", "via"],
+              "properties": {
+                "table": {
+                  "type": "string",
+                  "description": "数据库表名"
+                },
+                "operation": {
+                  "type": "string",
+                  "description": "操作类型",
+                  "enum": ["SELECT", "INSERT", "UPDATE", "DELETE"]
+                },
+                "via": {
+                  "type": "string",
+                  "description": "通过哪个 Repository/Mapper 方法"
+                },
+                "condition": {
+                  "type": "string",
+                  "description": "触发条件"
+                },
+                "affectedFields": {
+                  "type": "array",
+                  "description": "影响的字段列表",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          },
+          "externalCalls": {
+            "type": "array",
+            "description": "外部服务调用列表",
+            "items": {
+              "type": "object",
+              "properties": {
+                "target": { "type": "string", "description": "目标系统" },
+                "method": { "type": "string", "description": "调用方式（HTTP/RMB/Feign）" },
+                "apiEndpoint": { "type": "string", "description": "API 端点或 RMB Topic" },
+                "syncMode": { "type": "string", "enum": ["SYNC", "ASYNC"] },
+                "description": { "type": "string", "description": "调用描述" }
+              }
+            }
+          },
+          "rmbBridge": {
+            "type": "object",
+            "description": "RMB 桥接信息（仅合并的 RMB 流程有此字段）",
+            "properties": {
+              "topic": {
+                "type": "string",
+                "description": "RMB Topic 名称"
+              },
+              "mode": {
+                "type": "string",
+                "description": "通信模式",
+                "enum": ["SYNC", "ASYNC"]
+              },
+              "senderModule": {
+                "type": "string",
+                "description": "发送方模块名称"
+              },
+              "senderEntryClass": {
+                "type": "string",
+                "description": "发送方入口类"
+              },
+              "receiverModule": {
+                "type": "string",
+                "description": "接收方模块名称"
+              },
+              "receiverEntryClass": {
+                "type": "string",
+                "description": "接收方入口类"
+              },
+              "isExternal": {
+                "type": "boolean",
+                "description": "对端是否为外部系统（不在本代码库中）"
+              },
+              "externalSystem": {
+                "type": "string",
+                "description": "外部系统名称"
+              }
+            }
+          },
+          "flowCategory": {
+            "type": "string",
+            "description": "流程分类",
+            "enum": ["MERGED_RMB_FLOW", "STANDALONE_FLOW"]
+          }
+        }
+      }
+    },
+    "tableIndex": {
+      "type": "array",
+      "description": "数据库表索引（以表为维度的汇总）",
+      "items": {
+        "type": "object",
+        "properties": {
+          "table": { "type": "string", "description": "表名" },
+          "operations": {
+            "type": "object",
+            "description": "操作类型计数",
+            "properties": {
+              "select": { "type": "integer" },
+              "insert": { "type": "integer" },
+              "update": { "type": "integer" },
+              "delete": { "type": "integer" }
+            }
+          },
+          "relatedFlows": {
+            "type": "array",
+            "description": "涉及该表的流程列表",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

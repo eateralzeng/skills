@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Flow Data Lineage - 数据血缘",
+  "description": "按数据库表维度分析 Producer/Consumer 关系，识别跨流程隐式依赖",
+  "type": "object",
+  "required": ["project", "scanDate", "tables", "implicitDependencies"],
+  "properties": {
+    "project": {
+      "type": "string",
+      "description": "项目名称"
+    },
+    "scanDate": {
+      "type": "string",
+      "format": "date-time",
+      "description": "扫描日期时间"
+    },
+    "totalTables": {
+      "type": "integer",
+      "description": "分析的数据库表总数"
+    },
+    "totalDependencies": {
+      "type": "integer",
+      "description": "识别的隐式依赖总数"
+    },
+    "tables": {
+      "type": "array",
+      "description": "按表维度的血缘分析",
+      "items": {
+        "type": "object",
+        "required": ["tableName", "producers", "consumers", "updaters", "dataFlows"],
+        "properties": {
+          "tableName": {
+            "type": "string",
+            "description": "数据库表名"
+          },
+          "producers": {
+            "type": "array",
+            "description": "对该表执行 INSERT 操作的流程（数据生产者）",
+            "items": {
+              "type": "object",
+              "required": ["handlerId", "flowId", "operation"],
+              "properties": {
+                "handlerId": {
+                  "type": "string",
+                  "description": "Handler ID（对应 flow-detail.json 中的 handler.id）"
+                },
+                "flowId": {
+                  "type": "string",
+                  "description": "所属 Flow ID"
+                },
+                "flowName": {
+                  "type": "string",
+                  "description": "Flow 名称"
+                },
+                "operation": {
+                  "type": "string",
+                  "description": "操作类型",
+                  "enum": ["INSERT"]
+                },
+                "via": {
+                  "type": "string",
+                  "description": "执行插入的 Repository/Mapper 方法"
+                },
+                "module": {
+                  "type": "string",
+                  "description": "所属模块"
+                }
+              }
+            }
+          },
+          "consumers": {
+            "type": "array",
+            "description": "对该表执行 SELECT 操作的流程（数据消费者）",
+            "items": {
+              "type": "object",
+              "required": ["handlerId", "flowId", "operation"],
+              "properties": {
+                "handlerId": {
+                  "type": "string",
+                  "description": "Handler ID"
+                },
+                "flowId": {
+                  "type": "string",
+                  "description": "所属 Flow ID"
+                },
+                "flowName": {
+                  "type": "string",
+                  "description": "Flow 名称"
+                },
+                "operation": {
+                  "type": "string",
+                  "description": "操作类型",
+                  "enum": ["SELECT"]
+                },
+                "via": {
+                  "type": "string",
+                  "description": "执行查询的 Repository/Mapper 方法"
+                },
+                "module": {
+                  "type": "string",
+                  "description": "所属模块"
+                }
+              }
+            }
+          },
+          "updaters": {
+            "type": "array",
+            "description": "对该表执行 UPDATE 操作的流程",
+            "items": {
+              "type": "object",
+              "required": ["handlerId", "flowId", "operation"],
+              "properties": {
+                "handlerId": {
+                  "type": "string",
+                  "description": "Handler ID"
+                },
+                "flowId": {
+                  "type": "string",
+                  "description": "所属 Flow ID"
+                },
+                "flowName": {
+                  "type": "string",
+                  "description": "Flow 名称"
+                },
+                "operation": {
+                  "type": "string",
+                  "description": "操作类型",
+                  "enum": ["UPDATE"]
+                },
+                "via": {
+                  "type": "string",
+                  "description": "执行更新的 Repository/Mapper 方法"
+                },
+                "module": {
+                  "type": "string",
+                  "description": "所属模块"
+                },
+                "affectedFields": {
+                  "type": "array",
+                  "description": "被更新的字段列表",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          },
+          "deleters": {
+            "type": "array",
+            "description": "对该表执行 DELETE 操作的流程",
+            "items": {
+              "type": "object",
+              "required": ["handlerId", "flowId", "operation"],
+              "properties": {
+                "handlerId": {
+                  "type": "string",
+                  "description": "Handler ID"
+                },
+                "flowId": {
+                  "type": "string",
+                  "description": "所属 Flow ID"
+                },
+                "flowName": {
+                  "type": "string",
+                  "description": "Flow 名称"
+                },
+                "operation": {
+                  "type": "string",
+                  "description": "操作类型",
+                  "enum": ["DELETE"]
+                },
+                "via": {
+                  "type": "string",
+                  "description": "执行删除的 Repository/Mapper 方法"
+                },
+                "module": {
+                  "type": "string",
+                  "description": "所属模块"
+                }
+              }
+            }
+          },
+          "dataFlows": {
+            "type": "array",
+            "description": "该表上的数据流向关系（Producer → Table → Consumer）",
+            "items": {
+              "type": "object",
+              "required": ["producerFlowId", "consumerFlowId", "relationship"],
+              "properties": {
+                "producerFlowId": {
+                  "type": "string",
+                  "description": "生产者 Flow ID"
+                },
+                "producerFlowName": {
+                  "type": "string",
+                  "description": "生产者 Flow 名称"
+                },
+                "consumerFlowId": {
+                  "type": "string",
+                  "description": "消费者 Flow ID"
+                },
+                "consumerFlowName": {
+                  "type": "string",
+                  "description": "消费者 Flow 名称"
+                },
+                "relationship": {
+                  "type": "string",
+                  "description": "关系类型",
+                  "enum": ["DATA_DEPENDENCY", "SHARED_READ", "SHARED_WRITE", "READ_WRITE_CONFLICT"]
+                },
+                "description": {
+                  "type": "string",
+                  "description": "数据流向描述"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "implicitDependencies": {
+      "type": "array",
+      "description": "跨流程的隐式依赖关系（通过共享数据库表产生）",
+      "items": {
+        "type": "object",
+        "required": ["sourceFlowId", "targetFlowId", "tableName", "dependencyType"],
+        "properties": {
+          "sourceFlowId": {
+            "type": "string",
+            "description": "源 Flow ID（数据生产方）"
+          },
+          "sourceFlowName": {
+            "type": "string",
+            "description": "源 Flow 名称"
+          },
+          "targetFlowId": {
+            "type": "string",
+            "description": "目标 Flow ID（数据消费方）"
+          },
+          "targetFlowName": {
+            "type": "string",
+            "description": "目标 Flow 名称"
+          },
+          "tableName": {
+            "type": "string",
+            "description": "共享的数据库表"
+          },
+          "dependencyType": {
+            "type": "string",
+            "description": "依赖类型",
+            "enum": ["DATA_DEPENDENCY", "POTENTIAL_CONFLICT", "SHARED_RESOURCE"]
+          },
+          "description": {
+            "type": "string",
+            "description": "依赖关系描述"
+          },
+          "sourceOperation": {
+            "type": "string",
+            "description": "源 Flow 对该表的操作",
+            "enum": ["INSERT", "UPDATE", "DELETE"]
+          },
+          "targetOperation": {
+            "type": "string",
+            "description": "目标 Flow 对该表的操作",
+            "enum": ["SELECT", "UPDATE", "DELETE"]
+          }
+        }
+      }
+    }
+  }
+}

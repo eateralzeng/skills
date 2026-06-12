@@ -1,0 +1,92 @@
+{
+  "project": "{{project_name}}",
+  "projectPath": "{{project_path}}",
+  "scanDate": "{{scan_date}}",
+  "totalHandlers": {{total_handlers}},
+  "handlers": [
+    {
+      "id": "{{handler_id}}",
+      "name": "{{handler_class}}.{{handler_method}}",
+      "parentFlowId": "{{parent_flow_id}}",
+      "type": "{{handler_type}}",
+      "module": "{{module_name}}",
+      "className": "{{handler_class_fqn}}",
+      "packageName": "{{handler_package}}",
+      "methodName": "{{handler_method}}",
+      "filePath": "{{file_path}}",
+      "businessDescription": "{{business_description}}",
+      "chain": [
+        {
+          "layer": "ENTRY",
+          "className": "{{entry_class}}",
+          "methodName": "{{entry_method}}"
+        },
+        {
+          "layer": "SERVICE",
+          "className": "{{service_class}}",
+          "methodName": "{{service_method}}"
+        },
+        {
+          "layer": "RMB_CLIENT",
+          "className": "{{rmb_client_class}}",
+          "methodName": "{{rmb_client_method}}"
+        }
+      ],
+      "databaseOperations": [
+        {"table": "{{table_name}}", "operation": "{{db_operation}}", "via": "{{dao_method}}"}
+      ],
+      "rmbBridge": {
+        "topic": "{{rmb_topic}}",
+        "mode": "{{rmb_mode}}",
+        "role": "{{bridge_role}}",
+        "matchingHandlerId": "{{matching_handler_id}}",
+        "matchingHandlerName": "{{matching_handler_name}}",
+        "senderModule": "{{sender_module}}",
+        "receiverModule": "{{receiver_module}}",
+        "isExternal": {{is_external}}
+      }
+    },
+    {
+      "id": "{{handler_id_2}}",
+      "name": "{{handler_class_2}}.{{handler_method_2}}",
+      "parentFlowId": "{{parent_flow_id_2}}",
+      "type": "RMB_HANDLER",
+      "module": "{{module_name_2}}",
+      "className": "{{handler_class_fqn_2}}",
+      "packageName": "{{handler_package_2}}",
+      "methodName": "{{handler_method_2}}",
+      "filePath": "{{file_path_2}}",
+      "businessDescription": "{{business_description_2}}",
+      "chain": [
+        {
+          "layer": "ENTRY",
+          "className": "{{rmb_controller_class}}",
+          "methodName": "onReceive"
+        },
+        {
+          "layer": "SERVICE",
+          "className": "{{service_class_2}}",
+          "methodName": "{{service_method_2}}"
+        },
+        {
+          "layer": "REPOSITORY",
+          "className": "{{dao_class}}",
+          "methodName": "{{dao_method}}"
+        }
+      ],
+      "databaseOperations": [
+        {"table": "{{table_name}}", "operation": "INSERT", "via": "{{dao_method}}"}
+      ],
+      "rmbBridge": {
+        "topic": "{{rmb_topic}}",
+        "mode": "{{rmb_mode}}",
+        "role": "RECEIVER",
+        "matchingHandlerId": "{{sender_handler_id}}",
+        "matchingHandlerName": "{{sender_handler_name}}",
+        "senderModule": "{{sender_module}}",
+        "receiverModule": "{{receiver_module}}",
+        "isExternal": false
+      }
+    }
+  ]
+}

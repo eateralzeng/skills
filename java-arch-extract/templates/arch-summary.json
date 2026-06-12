@@ -1,0 +1,39 @@
+{
+  "version": "string",
+  "project": "string",
+  "projectPath": "string",
+  "scanDate": "date-time",
+  "stats": {
+    "moduleCount": "integer",
+    "layerCount": "integer",
+    "totalClasses": "integer",
+    "interfaceCount": "integer",
+    "abstractClassCount": "integer",
+    "patternCount": "integer",
+    "riskCount": "integer"
+  },
+  "layerDistribution": [
+    {
+      "layer": "string",
+      "type": "string",
+      "classCount": "integer",
+      "percentage": "string"
+    }
+  ],
+  "patternSummary": [
+    {
+      "name": "string",
+      "occurrences": "integer",
+      "confidence": "string"
+    }
+  ],
+  "risks": [
+    {
+      "type": "string",
+      "from": "string",
+      "to": "string",
+      "file": "string",
+      "suggestion": "string"
+    }
+  ]
+}

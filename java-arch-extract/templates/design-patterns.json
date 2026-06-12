@@ -1,0 +1,18 @@
+{
+  "patterns": [
+    {
+      "name": "string",
+      "type": "creational | structural | behavioral",
+      "confidence": "high | medium | low",
+      "participants": [
+        {
+          "role": "string",
+          "className": "string",
+          "file": "string"
+        }
+      ],
+      "intent": "string",
+      "locations": ["string"]
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "version": "string",
+  "timestamp": "date-time",
+  "projectPath": "string",
+  "summary": {
+    "totalChecks": "integer",
+    "pass": "integer",
+    "warning": "integer",
+    "error": "integer",
+    "byDimension": {
+      "dataIntegrity":    { "pass": "integer", "warning": "integer", "error": "integer" },
+      "crossConsistency": { "pass": "integer", "warning": "integer", "error": "integer" },
+      "outputQuality":    { "pass": "integer", "warning": "integer", "error": "integer" },
+      "analysisLogic":    { "pass": "integer", "warning": "integer", "error": "integer" },
+      "mathConsistency":  { "pass": "integer", "warning": "integer", "error": "integer" }
+    }
+  },
+  "results": [
+    {
+      "id": "string",
+      "dimension": "dataIntegrity | crossConsistency | outputQuality | analysisLogic | mathConsistency",
+      "check": "string",
+      "level": "PASS | WARNING | ERROR",
+      "file": "string",
+      "field": "string",
+      "message": "string",
+      "expected": "string",
+      "actual": "string"
+    }
+  ],
+  "errorDetails": [
+    {
+      "id": "string",
+      "dimension": "string",
+      "check": "string",
+      "file": "string",
+      "message": "string",
+      "suggestion": "string"
+    }
+  ],
+  "warningDetails": [
+    {
+      "id": "string",
+      "dimension": "string",
+      "check": "string",
+      "file": "string",
+      "field": "string",
+      "message": "string",
+      "value": "string"
+    }
+  ]
+}
