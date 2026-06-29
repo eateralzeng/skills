@@ -32,23 +32,70 @@ LLM 子代理重新遍历剪枝/桥接后的调用树，为每个节点生成业
 
 ```
 对每个入口 entry：
-  1. 加载流程数据（优先 phase4，降级 phase3）
-  2. 展开所有节点为平铺列表
-  3. 应用跳过规则（减少 LLM 读取）
-  4. 剩余节点分批（每批 15 个）
-  5. 每批：
-     a. 准备子代理提示词（替换 {{nodes}}、{{project_dir}}、{{output_path}}）
-     b. 为每个节点附加 parentDescription
-     c. 派发子代理
-     d. 将描述结果合并到树中
-  6. 写入 phase5/{entryId}-semantics.json
+  0. 【恢复检查】如果 entry.id ∈ progress.completedEntries → 跳过该入口（见下方"断点续传"）
+  1. 运行 prepare 脚本：
+     python3 <skill_dir>/scripts/phase5_describe.py \
+       --mode prepare --cache-dir <cache_dir> --entry-id <entry.id>
+     脚本完成：
+     - 加载流程数据（优先 phase4，降级 phase3）
+     - 按下方"节点分类"规则标记每个节点类别
+     - 生成所有编排者节点描述（脚本确定性输出，写入 phase5/{entryId}-prepare.json）
+     - 对子代理节点按 layer 排序，应用连通性分批
+     输出：phase5/{entryId}-prepare.json，包含 orchestratorDescriptions、subagentBatches
+  2. 读取 prepare 输出，对每个批次【串行】派发子代理：
+     a. 从 prepare 的 orchestratorDescriptions + 已完成批次结果读取 parentDescription
+     b. 准备子代理提示词（替换 {{nodes}}、{{project_dir}}、{{output_path}}）
+     c. 派发子代理，收集子代理输出 JSON
+  3. 运行 merge 脚本（合并所有描述）：
+     python3 <skill_dir>/scripts/phase5_describe.py \
+       --mode merge --cache-dir <cache_dir> --entry-id <entry.id> \
+       --subagent-output <subagent_output_path>
+     脚本完成：
+     - 加载原始 chain 数据
+     - 应用 prepare 的 orchestratorDescriptions
+     - 应用子代理输出（优先级高于编排者）
+     - 写入 phase5/{entryId}-semantics.json
+  4. 【持久化】将 entry.id 追加到 progress.completedEntries，立即写盘 progress.json
 ```
 
-## 跳过规则
+## 节点分类与描述生成（由 phase5_describe.py --mode prepare 实现）
 
-以下节点类型不需要读源码，直接从上下文推断：
+> **实现说明**：以下分类规则和描述模板由 `scripts/phase5_describe.py` 实现，编排者不再手工判断节点类别或拼接描述。本节作为脚本逻辑的概念文档，便于审查和扩展。
 
-1. **标准 Mapper 方法**：方法名匹配 `select*`/`insert*`/`update*`/`delete*`/`query*`/`find*`/`get*`/`save*`
+采用两层分类：第 0 层按节点类型（虚拟 vs 真实）分发，第 1 层对真实节点按业务语义过滤。
+
+### 第 0 层：虚拟节点（按 class 字段判定）
+
+Phase 4 桥接脚本注入的虚拟节点（`class` 为类型常量，`filePath` 通常为空）不需要读源码，由编排者按模板生成描述。
+
+**虚拟节点类型注册表**：
+
+| class | 来源 | 描述模板 |
+|-------|------|---------|
+| `BRIDGE` | Phase 4 RMB/MQ/Event 桥接 | 按桥接子类型细分（见下表） |
+| `MQ_LISTENER` | Phase 4 MQ 桥接的接收端 stub | `"MQ 接收端：监听 topic={topic}"` |
+| `EVENT_LISTENER` | Phase 4 Event 桥接的接收端 stub | `"事件监听器：处理 {eventClass} 事件"` |
+
+**BRIDGE 节点的子类型细分**（按 nodeId 前缀判定）：
+
+| 桥接类型 | 识别方式 | 描述模板 |
+|---------|---------|---------|
+| RMB | nodeId 以 `BRIDGE:RMB:` 开头（或对应 RMB 桥接脚本产出的命名） | `"RMB 桥接：通过 {target} 触发接收端"` |
+| MQ | nodeId 以 `BRIDGE:MQ:` 开头 | `"MQ 桥接：通过 topic={topic} 触发接收端"` |
+| Event | nodeId 以 `BRIDGE:EVENT:` 开头 | `"事件桥接：发布 {eventClass} 事件"` |
+
+**字段提取来源**：
+- `topic`：从 nodeId 后缀 `BRIDGE:MQ:...->{topic}` 解析；无法解析时从 `description` 字段提取
+- `eventClass`：从 nodeId 后缀 `BRIDGE:EVENT:...->{eventClass}` 解析
+- RMB `target`：从 nodeId 后缀 `BRIDGE:{sender}->{receiver}` 解析；无法解析时使用 `description` 字段
+
+> **扩展约定**：未来 Phase 4 引入新的虚拟节点类型时，只需在本注册表新增一行，无需修改第 1 层规则。
+
+### 第 1 层：真实节点的业务语义跳过规则
+
+第 0 层未匹配的节点（`class` 是包名.类名的 FQN）按以下 5 条业务语义规则过滤：
+
+1. **标准 Mapper 方法（terminal=true）**：方法名匹配 `select*`/`insert*`/`update*`/`delete*`/`query*`/`find*`/`get*`/`save*`/`count*`/`exists*`，**且类名包含 `Mapper`/`Repository` 后缀**，**且节点 `terminal=true`**（terminal=true 才是数据访问终点；非 terminal 的 Dao/Service 同等对待，由子代理读源码理解业务含义）
    → 从方法名推断描述
 
 2. **带 domainInteraction 的终端节点**：
@@ -61,10 +108,95 @@ LLM 子代理重新遍历剪枝/桥接后的调用树，为每个节点生成业
    → 从 patternRef 读取 dispatch-summary 文件生成描述
    → 编排者负责：读取 dispatch-summary-{patternRef}.json，生成 "多态分发：根据 {conditions} 路由到 N 个实现类"
    → 子节点（DISPATCH_IMPL 类型）的描述从 summary 的 endpoints 字段直接推断
+   → **字段缺失 fallback**：缺 `patternRef` 或 dispatch-summary 文件不存在时，生成 "多态分发节点（实现细节未识别）"，不让节点进子代理批次
 
 5. **DISPATCH 子节点**（callType == "DISPATCH_IMPL"）：
    → 从 dispatchImpl 和 domainInteraction 推断
    → 不需要读源码
+   → **字段缺失 fallback**：缺 `dispatchImpl` 时，生成 "分发实现节点（细节未识别）"
+
+> 这 5 条规则的处理对象是**真实节点**（FQN class）。未命中任何规则的节点进入子代理批次。
+
+## 分批策略（由 phase5_describe.py --mode prepare 实现）
+
+为保证 `parentDescription` 的可用性（见 ISSUE-5-02/5-08），子代理批次划分必须满足两条约束：
+
+1. **同批内无父子关系**（连通性约束）
+2. **跨批时父在子前**（layer 排序保证）
+
+### 分批算法
+
+```python
+def split_into_batches(nodes, batch_size=15):
+    # 1. 按 layer 排序，确保父节点天然在子节点前
+    nodes_sorted = sorted(nodes, key=lambda n: (n["layer"], n["nodeId"]))
+
+    batches = []
+    current_batch = []
+    current_ids = set()
+
+    for node in nodes_sorted:
+        parent_id = node.get("parentId")
+
+        # 2. 如果父节点在本批，把当前节点推到下一批
+        if parent_id in current_ids and current_batch:
+            batches.append(current_batch)
+            current_batch = []
+            current_ids = set()
+
+        current_batch.append(node)
+        current_ids.add(node["nodeId"])
+
+        # 3. 达到批次大小，结束当前批
+        if len(current_batch) >= batch_size:
+            batches.append(current_batch)
+            current_batch = []
+            current_ids = set()
+
+    if current_batch:
+        batches.append(current_batch)
+    return batches
+```
+
+### 算法保证
+
+- 同批内**无父子关系**（连通性约束）
+- 跨批时**父在子前**（按 layer 排序）
+- 极端情况下批次数可能略增（直线链 20 节点 → 拆为 15 + 5），但 parentDescription 始终可读到
+
+## 并行性约定
+
+| 维度 | 是否可并行 | 理由 |
+|------|---------|------|
+| 同入口内的批次 | ❌ 必须串行 | 子批依赖父批的 parentDescription |
+| 不同入口之间 | ✅ 可并行 | 入口间无父子依赖（除非 RMB 桥接合并） |
+
+**RMB 桥接合并的特例**：sender entry + receiver entry 在 Phase 4 合并后形成一条 chain，整体作为一个逻辑入口处理，所有批次串行。
+
+## 断点续传
+
+### 进度跟踪
+
+`progress.json` 的 Phase 5 部分包含 `completedEntries` 数组，记录已完成的入口 ID。
+
+### 持久化策略
+
+- 每个入口处理完成（执行流程步骤 7 写入 semantics.json）后，**立即**将 entryId 追加到 `completedEntries` 并持久化 `progress.json`（不依赖内存）
+- 失败的入口不写入 `completedEntries`，下次重入时从头重试该入口
+
+### 恢复流程
+
+重入 Phase 5 时：
+1. 读取 `progress.json`
+2. 对每个 entry in entries：
+   - 如果 `entry.id ∈ completedEntries` → 跳过该入口
+   - 否则 → 完整执行该入口的所有步骤（包括失败入口的重试）
+3. 所有入口处理完后，标记 Phase 5 整体 `COMPLETED`
+
+### 幂等性约定
+
+- **自动恢复**（默认）：跳过 `completedEntries` 中的入口
+- **强制重跑**（用户明确要求"重跑 Phase 5"）：清空 `completedEntries` 后重新跑所有入口
 
 ## 子代理输出格式
 
@@ -74,7 +206,7 @@ LLM 子代理重新遍历剪枝/桥接后的调用树，为每个节点生成业
     {
       "nodeId": "模块名:包名.类名:方法名",
       "description": "中文业务描述",
-      "source": "source-code | inferred-method-name | inferred-domain",
+      "source": "source-code | inferred-method-name",
       "businessContext": "流程定位（可选）"
     }
   ]
@@ -83,5 +215,23 @@ LLM 子代理重新遍历剪枝/桥接后的调用树，为每个节点生成业
 
 ## 错误处理
 
-- 子代理异常：跳过该批，使用方法名作为降级描述
-- 源文件不存在：使用 inferred-method-name 作为描述来源
+> **脚本错误**：prepare/merge 脚本失败时（文件不存在、JSON 格式错误），编排者捕获 stderr 输出后停止该入口处理，不进入子代理派发环节。
+
+### 子代理批次失败
+
+采用"批次减半重试"策略（与 Phase 2a 一致）：
+
+| 重试轮次 | 批次大小 | 失败后动作 |
+|---------|---------|----------|
+| 1 | 15 | 缩小到 8 重试 |
+| 2 | 8 | 缩小到 4 重试 |
+| 3 | 4 | 缩小到 2 重试 |
+| 4 | 2 | 缩小到 1 重试 |
+| 5 | 1（单节点） | 用方法名降级 |
+
+最终仍失败的单节点：使用方法名作为描述（驼峰拆词），source 标记为 `inferred-method-name`。
+
+### 其他错误
+
+- 源文件不存在：使用 `inferred-method-name` 作为描述来源
+- 虚拟节点的 nodeId 后缀解析失败：使用 `description` 字段作为兜底；仍失败则用 `"桥接节点（元数据缺失）"`

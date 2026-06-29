@@ -21,6 +21,7 @@ def _load_json(path):
 
 
 def _save_json(path, data):
+    os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
     with open(path, 'w') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
@@ -42,6 +43,19 @@ _ENDPOINT_FIELD_MAP = {
     "target": "class",
     "targetMethod": "method",
 }
+
+
+def _infer_operation(method_name):
+    """Infer SQL operation from method name."""
+    mn = method_name.lower()
+    for prefix, op in [("select", "SELECT"), ("query", "SELECT"), ("find", "SELECT"),
+                       ("get", "SELECT"), ("count", "SELECT"), ("list", "SELECT"),
+                       ("insert", "INSERT"), ("save", "INSERT"), ("add", "INSERT"),
+                       ("update", "UPDATE"), ("modify", "UPDATE"),
+                       ("delete", "DELETE"), ("remove", "DELETE")]:
+        if mn.startswith(prefix):
+            return op
+    return "UNKNOWN"
 
 
 def _normalize_result(r):
@@ -72,7 +86,7 @@ def _normalize_result(r):
         nr["endpoints"] = []
         fixed += 1
 
-    # Normalize endpoint fields
+    # Normalize endpoint fields with defaults
     norm_eps = []
     for ep in nr.get("endpoints", []):
         if not isinstance(ep, dict):
@@ -84,6 +98,33 @@ def _normalize_result(r):
                 fixed += 1
         for k, v in ep.items():
             nep[k] = v
+        # Defaults for missing endpoint fields
+        if "type" not in nep or not nep["type"]:
+            nep["type"] = "UNKNOWN"
+            fixed += 1
+        # Normalize type values to canonical forms
+        _TYPE_MAP = {
+            "Mapper": "DATABASE",
+            "Dao": "DATABASE",
+            "RmbClient": "RMB_EXTERNAL",
+            "Service->RmbClient": "RMB_EXTERNAL",
+            "HttpClient": "HTTP_EXTERNAL",
+            "FeignClient": "HTTP_EXTERNAL",
+            "RestTemplate": "HTTP_EXTERNAL",
+            "KafkaTemplate": "MQ_PUBLISH",
+            "JmsTemplate": "MQ_PUBLISH",
+            "FileWrite": "FILE_WRITE",
+        }
+        if nep["type"] in _TYPE_MAP:
+            nep["type"] = _TYPE_MAP[nep["type"]]
+            fixed += 1
+        if nep["type"] == "DATABASE":
+            if "table" not in nep or not nep["table"]:
+                nep["table"] = "[待确认]"
+                fixed += 1
+            if "operation" not in nep or not nep["operation"]:
+                nep["operation"] = _infer_operation(nep.get("method", ""))
+                fixed += 1
         norm_eps.append(nep)
     nr["endpoints"] = norm_eps
 
@@ -129,6 +170,16 @@ def normalize_file(filepath, pattern_index):
 
     data["results"] = norm_results
 
+    # Dedup by class field
+    seen = set()
+    deduped = []
+    for r in data["results"]:
+        cls = r.get("class", "")
+        if cls not in seen:
+            seen.add(cls)
+            deduped.append(r)
+    data["results"] = deduped
+
     # Save if changed
     if total_fixed > 0 or structural_fix:
         _save_json(filepath, data)
@@ -142,6 +193,7 @@ def normalize_file(filepath, pattern_index):
 
 def main():
     args = parse_args()
+    args.cache_dir = os.path.abspath(args.cache_dir)
     phase2b_dir = os.path.join(args.cache_dir, "phase2b")
 
     # Load pattern-index for interface name lookup

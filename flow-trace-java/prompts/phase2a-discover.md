@@ -34,7 +34,7 @@
 | 6 | 构造函数 | 方法名 `<init>` |
 | 7 | 日志调用 | `log.*`、`logger.*`、`LoggerFactory.*` |
 | 8 | 非业务 getter/setter | 非 DAO/Mapper/Repository 类的 `get*`/`set*` 方法 |
-| 9 | 项目外依赖 | 在项目源码目录中找不到目标类对应的 .java 文件（无法读取源码的外部依赖） |
+| 9 | 项目外依赖 | 在项目源码目录中找不到目标类对应的 .java 文件（Client/Proxy/Template 除外，见下方排除规则） |
 
 **排除**：以下调用不属于噪声，必须保留，交给第 2 步终点判定：
 - 同类内部方法调用（如 `this.uploadFile()`、同类 private 方法）
@@ -48,7 +48,7 @@
 | 类型 | 匹配规则 | domainInteraction |
 |------|---------|-------------------|
 | DATABASE | 类名含 Mapper/Repository | {type: "DATABASE", operation, table} |
-| RMB_EXTERNAL | 类名含 Client/Proxy, 有 @RmbClient 注解 | {type: "EXTERNAL", direction: "OUT", target, protocol: "RMB"} |
+| RMB_EXTERNAL | 类名含 Client/Proxy, 有 @RmbClient 注解 | {type: "EXTERNAL", direction: "OUT", target, protocol: "RMB", routingKeys: {topic, transCode}} |
 | HTTP_EXTERNAL | 调用 RestTemplate / FeignClient / HttpClient | {type: "EXTERNAL", direction: "OUT", target, protocol: "HTTP"} |
 | FILE_WRITE | 调用 FileOutputStream / Files.write | {type: "FILE", operation: "WRITE"} |
 | MQ_PUBLISH | 调用 KafkaTemplate / JmsTemplate | {type: "MQ", direction: "OUT", topic} |
@@ -56,6 +56,62 @@
 ### 第 3 步：可穿透节点
 
 不属于以上两类的调用 → `isEndpoint: false`，将在后续批次中继续展开。
+
+### 特殊调用模式
+
+| 模式 | 处理方式 | 示例 |
+|------|---------|------|
+| Lambda 表达式 | 提取实际调用的目标方法 | `list.forEach(item -> service.process(item))` → 识别 `service.process()` |
+| 方法引用 | 等同于直接调用目标方法 | `list.stream().map(Mapper::insert)` → 识别 `Mapper.insert()` |
+| Stream 操作 | 只提取中间/终端操作中涉及的业务方法调用，`filter`/`map`/`collect` 等框架方法本身为噪声 | `list.stream().map(dto -> mapper.insert(dto))` → 识别 `mapper.insert()` |
+
+---
+
+## RMB Client routingKeys 提取
+
+当发现 RMB Client 终点（类名含 Client/Proxy，有 `@RmbClient` 注解）时，必须提取 `routingKeys` 用于后续桥接匹配。
+
+### 提取步骤
+
+1. 读 RMB Client 接口源文件，定位到调用的方法
+2. 从方法的 `@RmbTopic` 注解提取 topic 常量引用：
+   ```java
+   @RmbTopic(topic = CbrcBsJrpRmbApi.SZ_COURT_REQUEST_RECEIVE, topicMode = SYNC)
+   RmbResponse szCourtReqNotify(...);
+   ```
+   topic 引用是 `CbrcBsJrpRmbApi.SZ_COURT_REQUEST_RECEIVE`
+
+3. 跟踪常量引用到常量类，提取实际值：
+   ```java
+   // CbrcBsJrpRmbApi.java
+   public static final String SZ_COURT_REQUEST_RECEIVE = "sz-court-request-receive";
+   ```
+   实际 topic 值为 `"sz-court-request-receive"`
+
+4. 检查方法上是否有 `@AppHeaderArg(name="transCode", value=XXX)`：
+   - 有 → 提取 value（如 `ACCOUNT_ASIDE_HOLD_CHECK`）
+   - 无 → transCode 为 `null`
+
+### 输出格式
+
+```json
+"domainInteraction": {
+  "type": "EXTERNAL",
+  "direction": "OUT",
+  "target": "CbrcBsJrpClient.szCourtReqNotify",
+  "protocol": "RMB",
+  "routingKeys": {
+    "topic": "sz-court-request-receive",
+    "transCode": null
+  }
+}
+```
+
+**注意**：
+- `target` 保留 class.method 格式，作为参考
+- `routingKeys.topic` 必须是实际字符串值，不能是常量引用名
+- 常量类通常在项目中的 `*RmbApi.java` 文件中，按 import 路径查找
+- 如果无法解析常量值（常量类不在项目中），topic 用常量引用名（如 `CbrcBsJrpRmbApi.SZ_COURT_REQUEST_RECEIVE`），但尽量解析实际值
 
 ---
 
@@ -89,7 +145,7 @@
 ### 判断步骤
 
 1. 读取目标类的源文件，判断是否为 `interface` 或 `abstract class`
-2. 如果目标类的**短类名**出现在上方 pattern_index 的 `interface` 字段中（匹配接口的短类名部分），按 DISPATCH 处理
+2. 如果目标类的**短类名**（`interface` 字段最后一个 `.` 后的部分）匹配上方 pattern_index 中的某个条目，按 DISPATCH 处理
 3. 输出格式：
 
 ```json
@@ -146,6 +202,24 @@
             "type": "DATABASE",
             "operation": "SELECT",
             "table": "table_name"
+          }
+        },
+        {
+          "targetClass": "com.webank.cbrc.client.bs.jrp.CbrcBsJrpClient",
+          "targetMethod": "szCourtReqNotify",
+          "targetFilePath": "cbrc-rmb-client/src/main/java/.../CbrcBsJrpClient.java",
+          "callType": "DIRECT",
+          "isEndpoint": true,
+          "endpointType": "RMB_EXTERNAL",
+          "domainInteraction": {
+            "type": "EXTERNAL",
+            "direction": "OUT",
+            "target": "CbrcBsJrpClient.szCourtReqNotify",
+            "protocol": "RMB",
+            "routingKeys": {
+              "topic": "sz-court-request-receive",
+              "transCode": null
+            }
           }
         }
       ]

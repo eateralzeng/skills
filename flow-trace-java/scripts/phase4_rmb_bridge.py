@@ -31,16 +31,23 @@ def _save_json(path, data):
 
 
 def _extract_rmb_nodes(chain):
-    """Find nodes with domainInteraction type=EXTERNAL and protocol=RMB."""
+    """Find nodes with domainInteraction type=EXTERNAL and protocol=RMB.
+
+    Extracts topic and transCode from routingKeys, with fallback to target
+    for backward compatibility with data that lacks routingKeys.
+    """
     senders = []
     for node in chain:
         di = node.get("domainInteraction")
         if di and di.get("type") == "EXTERNAL" and di.get("protocol") == "RMB":
-            topic = di.get("target", "")
+            routing_keys = di.get("routingKeys") or {}
+            topic = routing_keys.get("topic") or di.get("target", "")
+            trans_code = routing_keys.get("transCode")
             if topic:
                 senders.append({
                     "nodeId": node["nodeId"],
                     "topic": topic,
+                    "transCode": trans_code,
                     "node": node,
                 })
     return senders
@@ -106,6 +113,7 @@ def _remap_layers(chain, start_layer):
 
 
 def do_bridge(args):
+    args.cache_dir = os.path.abspath(args.cache_dir)
     entries = _load_json(args.entries)
     receiver_index = _build_rmb_receiver_index(entries)
 
@@ -144,9 +152,17 @@ def do_bridge(args):
         # Process each RMB sender
         for sender_info in rmb_senders:
             topic = sender_info["topic"]
+            sender_trans_code = sender_info.get("transCode")
             sender_node = sender_info["node"]
 
             matching_receivers = receiver_index.get(topic, [])
+
+            # transCode 二次过滤：两边都有非 null 值时必须相等
+            if sender_trans_code is not None:
+                matching_receivers = [
+                    r for r in matching_receivers
+                    if r.get("transCode") is None or r.get("transCode") == sender_trans_code
+                ]
 
             if not matching_receivers:
                 # Unmatched RMB sender
@@ -237,7 +253,7 @@ def do_bridge(args):
         out_path = os.path.join(args.cache_dir, "phase4", f"{entry_id}.json")
         pruned["flowType"] = "STANDALONE_FLOW"
         pruned["rmbBridge"] = {
-            "topic": rmb_senders[0]["topic"] if rmb_senders else None,
+            "topics": [s["topic"] for s in rmb_senders],
             "matchingStatus": "UNMATCHED" if not any(
                 b["matchingStatus"] == "MATCHED" and b["senderHandlerId"] == entry_id
                 for b in bridges

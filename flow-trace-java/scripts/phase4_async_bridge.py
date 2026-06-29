@@ -88,15 +88,21 @@ def _is_async_method(node, async_index):
     if not file_path or not method:
         return False
 
-    # Direct match
+    # 用 basename 精确匹配文件名，避免子串误匹配
+    # 旧版 file_path in async_path 会把 Service.java 误匹配到 MyService.java
+    node_basename = os.path.basename(file_path)
     for async_path, async_method in async_index:
-        if async_method == method and (file_path in async_path or async_path.endswith(file_path)):
+        if async_method != method:
+            continue
+        if os.path.basename(async_path) == node_basename:
             return True
 
     return False
 
 
 def do_async_bridge(args):
+    args.cache_dir = os.path.abspath(args.cache_dir)
+    args.project_dir = os.path.abspath(args.project_dir)
     entries = _load_json(args.entries)
 
     # Build @Async method index from project source
@@ -140,7 +146,7 @@ def do_async_bridge(args):
                 flagged += 1
 
         if flagged > 0:
-            # Save updated data back to phase5
+            # Save updated data back to phase4
             out_path = os.path.join(args.cache_dir, "phase4", f"{entry_id}.json")
             data["asyncBridges"] = [
                 b for b in bridges if b["handlerId"] == entry_id

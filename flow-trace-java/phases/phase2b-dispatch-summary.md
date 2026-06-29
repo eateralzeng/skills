@@ -34,9 +34,10 @@ Phase 2b 只输出 dispatch-summary 文件，不修改其他阶段的文件。
       - {{project_dir}} 和 {{output_path}}
    b. 派发 LLM 子代理（prompts/phase2b-dispatch-analyze.md）
    c. 子代理输出 dispatch-summary-{patternName}.json 到 phase2b/ 目录
-3. 如果分发点的实现类数量 > 30，将实现类分批（每批 15-20 个）：
-   - 每批派发一个子代理
-   - 合并多批结果到同一个 dispatch-summary 文件
+3. 如果分发点的实现类数量 > 30，将实现类分批（每批 18 个）：
+   - 每批派发一个子代理，输出到临时文件 `phase2b/tmp/_batch-{patternName}-{N}.json`
+   - 合并多批结果：`python3 phase2b_dispatch_prepare.py --mode merge --cache-dir <cache> --pattern-name <name> --results <batch_dir>`（batch_dir 应为 `phase2b/tmp/`）
+   - merge 模式自动按 `class` 字段去重，从 `phase2b/tmp/_prepare-context-{patternName}.json` 获取 interface/dispatchType
 ```
 
 ## 与 Phase 2a 的关系

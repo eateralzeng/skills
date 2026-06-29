@@ -153,11 +153,17 @@ def _find_event_listeners(project_dir):
 
 
 def _extract_listener_event_class(method_line):
-    """Extract event class from listener method parameter."""
-    # public void handleEvent(XxxEvent event)
-    m = re.search(r'\(\s*(\w+[Ee]vent\w*)\s+\w+\s*\)', method_line)
+    """Extract event class from listener method parameter.
+
+    提取方法参数的第一个类型名，不限制 Event 后缀。
+    旧版正则 \\w+[Ee]vent\\w* 会漏掉自定义事件类（如 MyPayload、CustomMessage）。
+    """
+    # public void handleEvent(XxxEvent event) 或 public void onMessage(MyPayload payload)
+    m = re.search(r'\(\s*(\w+(?:<[^>]+>)?)\s+\w+\s*\)', method_line)
     if m:
-        return m.group(1)
+        type_name = m.group(1)
+        # 去掉泛型部分，取原始类型名
+        return type_name.split('<')[0]
     return None
 
 
@@ -217,6 +223,8 @@ def _create_bridge_node(sender_node, event_class, layer_offset):
 
 
 def do_event_bridge(args):
+    args.cache_dir = os.path.abspath(args.cache_dir)
+    args.project_dir = os.path.abspath(args.project_dir)
     entries = _load_json(args.entries)
 
     # Build event listener index from project source

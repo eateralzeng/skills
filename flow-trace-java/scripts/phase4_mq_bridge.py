@@ -50,46 +50,36 @@ def _find_mq_listeners(project_dir):
     Returns a dict: topic -> list of {method, filePath, class, topic}
     """
     index = {}
-    java_dirs = []
-    for root, dirs, files in os.walk(project_dir):
-        # Only walk src/main/java
-        if "src/main/java" in root:
-            java_dirs.append(root)
-
-    if not java_dirs:
+    try:
+        # 单次 grep + --include 过滤：让 grep 自己遍历项目树，自动跳过非 .java 文件
+        # 替代旧版 os.walk + 每个 src/main/java 单独 grep 的低效方案
+        result = subprocess.run(
+            ["grep", "-rn", "-E", "--include=*.java",
+             "@(KafkaListener|JmsListener|RabbitListener|RocketMQMessageListener)",
+             project_dir],
+            capture_output=True, text=True, timeout=120
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
         return index
 
-    # Grep for listener annotations
-    for java_dir in java_dirs:
-        try:
-            result = subprocess.run(
-                ["grep", "-rn", "-E", "@(KafkaListener|JmsListener|RabbitListener|RocketMQMessageListener)", java_dir],
-                capture_output=True, text=True, timeout=30
-            )
-            if result.returncode != 0:
-                continue
+    # grep 返回 0=有匹配, 1=无匹配, 其他=错误
+    if result.returncode not in (0, 1):
+        return index
 
-            for line in result.stdout.strip().split("\n"):
-                if not line:
-                    continue
-                # Format: file:lineNum:content
-                parts = line.split(":", 2)
-                if len(parts) < 3:
-                    continue
-                file_path, _, content = parts
-
-                # Extract topics from annotation
-                topics = _extract_topics_from_annotation(content)
-                for topic in topics:
-                    if topic not in index:
-                        index[topic] = []
-                    index[topic].append({
-                        "topic": topic,
-                        "filePath": file_path,
-                        "line": content.strip(),
-                    })
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+    for line in result.stdout.strip().split("\n"):
+        if not line:
             continue
+        parts = line.split(":", 2)
+        if len(parts) < 3:
+            continue
+        file_path, _, content = parts
+
+        for topic in _extract_topics_from_annotation(content):
+            index.setdefault(topic, []).append({
+                "topic": topic,
+                "filePath": file_path,
+                "line": content.strip(),
+            })
 
     return index
 
@@ -160,6 +150,8 @@ def _remap_layers(chain, start_layer):
 
 
 def do_mq_bridge(args):
+    args.cache_dir = os.path.abspath(args.cache_dir)
+    args.project_dir = os.path.abspath(args.project_dir)
     entries = _load_json(args.entries)
 
     # Build MQ listener index from project source

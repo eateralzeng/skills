@@ -105,6 +105,11 @@ def source_annotation_sql(project_dir):
                             break
                 i += 1
 
+            if depth != 0:
+                print(f"  WARNING: annotation body exceeds 10000 chars in {cls_name}, skipped")
+                pos = end_pos + 1
+                continue
+
             annot_body = content[paren_pos + 1:end_pos]
 
             rest = content[end_pos + 1:end_pos + 200]
@@ -222,8 +227,8 @@ def merge_schema(all_entries):
 
 def do_phase1b():
     args = parse_args()
-    project_dir = args.project_dir
-    cache_dir = args.cache_dir
+    project_dir = os.path.abspath(args.project_dir)
+    cache_dir = os.path.abspath(args.cache_dir)
 
     print("Phase 1b: DB Schema Collection (flow-trace-java)")
     print("=" * 50)
@@ -276,7 +281,7 @@ def do_phase1b():
     with open(lookup_path, 'w') as f:
         json.dump(lookup_output, f, indent=2, ensure_ascii=False)
 
-    print(f"\nPhase 2 Complete!")
+    print(f"\nPhase 1b Complete!")
     print(f"  Tables: {len(merged)}")
     print(f"  Operations: {sum(len(t['operations']) for t in merged)}")
     print(f"  Lookup entries: {len(lookup)}")

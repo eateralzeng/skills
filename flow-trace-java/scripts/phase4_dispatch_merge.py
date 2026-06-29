@@ -143,8 +143,7 @@ def mount_dispatch_children(chain, dispatch_summaries):
         # Match by patternRef (interface short name)
         summary = dispatch_summaries.get(pattern_ref)
         if not summary:
-            # Try matching by interface full name -> short name
-            iface = summary.get("interface", "") if summary else ""
+            # Fallback: match by interface short name from full qualified name
             for sn, s in dispatch_summaries.items():
                 if s.get("interface", "").rsplit(".", 1)[-1] == pattern_ref:
                     summary = s
@@ -173,7 +172,7 @@ def mount_dispatch_children(chain, dispatch_summaries):
 
 def main():
     args = parse_args()
-    cache_dir = args.cache_dir
+    cache_dir = os.path.abspath(args.cache_dir)
     entries = _load_json(args.entries)
 
     # Load dispatch summaries

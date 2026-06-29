@@ -342,6 +342,8 @@ def generate_flow_md(entry, flow_data, chain, cache_dir=None):
 
 def main():
     args = parse_args()
+    args.cache_dir = os.path.abspath(args.cache_dir)
+    args.output_dir = os.path.abspath(args.output_dir)
     entries_data = _load_json(args.entries)
     if not entries_data:
         print("ERROR: Cannot load entries.json", file=__import__('sys').stderr)

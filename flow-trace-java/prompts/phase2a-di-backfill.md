@@ -53,6 +53,10 @@
 | 类名含 `Fps`/`Ftp`，方法名含 `get`/`download` | `{type: "FILE", operation: "READ"}` |
 | 类名含 `Gns`/`GnsService`，内部调用 `*Client` | `{type: "EXTERNAL", direction: "OUT", target: "GNS", protocol: "RMB"}` |
 
+### 第 4 步：DISPATCH 类型
+
+如果节点是 DISPATCH 终点（有 `patternRef` 字段），domainInteraction 保持 `null`。分发点本身不直接交互外部系统，它的多个实现类各有不同的交互。
+
 ---
 
 ## 输出格式
@@ -94,7 +98,7 @@
 
 | type | 必填字段 | 示例 |
 |------|---------|------|
-| DATABASE | type, operation, table | `{"type":"DATABASE","operation":"SELECT","table":"cbrc_access_token"}` |
+| DATABASE | type, operation, table, direction | `{"type":"DATABASE","operation":"SELECT","direction":"IN","table":"cbrc_access_token"}` |
 | EXTERNAL | type, direction, target, protocol | `{"type":"EXTERNAL","direction":"OUT","target":"loan-service","protocol":"RMB"}` |
 | FILE | type, operation | `{"type":"FILE","operation":"WRITE"}` |
 | MQ | type, direction, topic | `{"type":"MQ","direction":"OUT","topic":"topic-name"}` |

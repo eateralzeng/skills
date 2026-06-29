@@ -62,6 +62,8 @@ class DispatchConfig:
         self.noise_interfaces = set(rules.get("noise-interface", []))
         self.noise_interface_prefixes = tuple(rules.get("noise-interface-prefix", []))
         self.noise_interface_suffixes = tuple(rules.get("noise-interface-suffix", []))
+        self.noise_abstract_classes = set(rules.get("noise-abstract-class", []))
+        self.noise_class_prefixes = tuple(rules.get("noise-class-prefix", []))
         self.exclude_packages = tuple(rules.get("exclude-package", []))
         self.exclude_annotations = [a.lstrip("@") for a in rules.get("exclude-annotation", [])]
         self.exclude_directories = rules.get("exclude-directory", [])
@@ -78,6 +80,15 @@ class DispatchConfig:
         if any(short.endswith(s) for s in self.noise_interface_suffixes):
             if any(fqn.startswith(p) for p in ("org.springframework.", "javax.", "jakarta.")):
                 return True
+        return False
+
+    def is_noise_class(self, fqn):
+        """Check if a class (abstract or concrete) is noise."""
+        short = fqn.split(".")[-1]
+        if short in self.noise_abstract_classes:
+            return True
+        if any(fqn.startswith(p) for p in self.noise_class_prefixes):
+            return True
         return False
 
     def is_excluded_annotation(self, source_line):
@@ -102,8 +113,10 @@ def _grep(project_dir, pattern, include="*.java", timeout=60):
         return ""
 
 
-def _find_java_files(project_dir, class_name):
-    """Find .java file for a class name."""
+def _find_java_files(project_dir, class_name, class_index=None):
+    """Find .java file for a class name. Uses pre-built index if available."""
+    if class_index is not None:
+        return class_index.get(class_name)
     matches = glob.glob(
         os.path.join(project_dir, "**", "src", "main", "java", "**", f"{class_name}.java"),
         recursive=True
@@ -111,16 +124,41 @@ def _find_java_files(project_dir, class_name):
     return matches[0] if matches else None
 
 
+def _build_class_index(project_dir):
+    """Build className -> filePath index with one find call."""
+    result = subprocess.run(
+        ['find', project_dir, '-path', '*/src/main/java/*', '-name', '*.java',
+         '-not', '-path', '*/test/*'],
+        capture_output=True, text=True, timeout=120
+    )
+    index = {}
+    for f in result.stdout.strip().split('\n'):
+        if not f:
+            continue
+        cls = os.path.basename(f).replace('.java', '')
+        if cls not in index:
+            index[cls] = f
+    return index
+
+
+_package_cache = {}
+
+
 def _get_package_from_file(file_path):
-    """Extract package name from Java file."""
+    """Extract package name from Java file (cached)."""
+    if file_path in _package_cache:
+        return _package_cache[file_path]
     try:
         with open(file_path) as f:
             for line in f:
                 m = re.match(r"package\s+([\w.]+)\s*;", line)
                 if m:
-                    return m.group(1)
+                    result = m.group(1)
+                    _package_cache[file_path] = result
+                    return result
     except Exception:
         pass
+    _package_cache[file_path] = ""
     return ""
 
 
@@ -215,7 +253,7 @@ def resolve_concrete_classes(project_dir, fqn_class, file_path, is_abstract,
 
 # ── Extends dispatch scanning ────────────────────────────────────────
 
-def scan_extends_dispatch(project_dir, config, known_interface_names):
+def scan_extends_dispatch(project_dir, config, known_interface_names, class_index=None):
     """Scan extends abstract class dispatch points not covered by implements scan."""
     output = _grep(project_dir, r"extends\s+\w+")
     parent_children = {}  # parent_short → [(child_fqn, child_path, is_abstract)]
@@ -259,7 +297,7 @@ def scan_extends_dispatch(project_dir, config, known_interface_names):
             continue
 
         # Verify parent is an abstract class (not interface, not noise)
-        parent_file = _find_java_files(project_dir, parent_short)
+        parent_file = _find_java_files(project_dir, parent_short, class_index)
         if not parent_file:
             continue
         try:
@@ -273,7 +311,7 @@ def scan_extends_dispatch(project_dir, config, known_interface_names):
 
         pkg = _get_package_from_file(parent_file)
         parent_fqn = f"{pkg}.{parent_short}" if pkg else parent_short
-        if config.is_noise_interface(parent_fqn):
+        if config.is_noise_interface(parent_fqn) or config.is_noise_class(parent_fqn):
             continue
 
         # Skip abstract classes with no abstract methods (pure utility base class)
@@ -327,8 +365,12 @@ def find_context_classes(project_dir, interface_name, config):
 
         class_name = os.path.basename(file_path).replace(".java", "")
         # Skip abstract classes — they are not dispatch contexts
-        if class_name.startswith("Abstract"):
-            continue
+        try:
+            with open(file_path) as fh:
+                if re.search(r'\babstract\s+class\b', fh.read()):
+                    continue
+        except Exception:
+            pass
         pkg = _get_package_from_file(file_path)
         fqn = f"{pkg}.{class_name}" if pkg else class_name
 
@@ -339,6 +381,26 @@ def find_context_classes(project_dir, interface_name, config):
             contexts.append(entry)
 
     return context_classes if context_classes else contexts[:3]
+
+
+_METHOD_RE = re.compile(r'\s+(?:public|private|protected)\s+\S+\s+(\w+)\s*\(')
+
+
+def _find_method_containing(content, target):
+    """Find method name whose body contains target string.
+
+    Uses line-by-line backward search instead of regex on method body,
+    avoiding issues with nested braces.
+    """
+    lines = content.split('\n')
+    current_method = None
+    for line in lines:
+        mm = _METHOD_RE.match(line)
+        if mm:
+            current_method = mm.group(1)
+        if target in line and current_method:
+            return current_method
+    return None
 
 
 def detect_dispatch_type(context_file_content):
@@ -405,8 +467,11 @@ def _extract_interface_methods(iface_file):
 # ── Main flow ────────────────────────────────────────────────────────
 
 def do_detect(args):
-    project_dir = args.project_dir
-    cache_dir = args.cache_dir
+    project_dir = os.path.abspath(args.project_dir)
+    cache_dir = os.path.abspath(args.cache_dir)
+
+    # Build class index once for all subsequent lookups
+    class_index = _build_class_index(project_dir)
 
     # Load rules
     config = DispatchConfig(load_rules(args.rules))
@@ -494,13 +559,7 @@ def do_detect(args):
             try:
                 with open(ctx_path) as f:
                     content = f.read()
-                method_matches = re.findall(
-                    r"(?:public|private|protected)\s+\w+\s+(\w+)\s*\([^)]*\)\s*\{[^}]*" +
-                    re.escape(iface_short) + r"[^}]*\}",
-                    content, re.DOTALL
-                )
-                if method_matches:
-                    context_method = method_matches[0]
+                context_method = _find_method_containing(content, iface_short)
             except Exception:
                 pass
 
@@ -513,7 +572,7 @@ def do_detect(args):
                 "module": _extract_module(fpath, project_dir),
             }
             impl_short = fqn.split(".")[-1]
-            impl_file = _find_java_files(project_dir, impl_short)
+            impl_file = _find_java_files(project_dir, impl_short, class_index)
             if impl_file:
                 try:
                     with open(impl_file) as f:
@@ -556,7 +615,7 @@ def do_detect(args):
             pa = impl.get("parentAbstract")
             if pa:
                 known_names.add(pa)
-    extends_map = scan_extends_dispatch(project_dir, config, known_names)
+    extends_map = scan_extends_dispatch(project_dir, config, known_names, class_index)
 
     extends_count = 0
     for abs_short, (abs_fqn, abs_file, abs_content, concrete_list) in sorted(extends_map.items()):
@@ -589,7 +648,7 @@ def do_detect(args):
                 "module": _extract_module(fpath, project_dir),
             }
             impl_short = fqn.split(".")[-1]
-            impl_file = _find_java_files(project_dir, impl_short)
+            impl_file = _find_java_files(project_dir, impl_short, class_index)
             if impl_file:
                 try:
                     with open(impl_file) as f:
@@ -677,8 +736,8 @@ def _find_interface_file(project_dir, interface_fqn):
 
 
 def do_verify_prepare(args):
-    cache_dir = args.cache_dir
-    project_dir = args.project_dir
+    cache_dir = os.path.abspath(args.cache_dir)
+    project_dir = os.path.abspath(args.project_dir)
 
     index_path = os.path.join(cache_dir, "phase1c", "pattern-index.json")
     with open(index_path) as f:
@@ -756,7 +815,7 @@ def do_verify_prepare(args):
         "batches": batches,
     }
 
-    output_path = os.path.join(cache_dir, "phase1c", "_verify-context.json")
+    output_path = os.path.join(cache_dir, "phase1c", "tmp", "_verify-context.json")
     with open(output_path, "w") as f:
         json.dump(output, f, indent=2, ensure_ascii=False)
 
@@ -766,7 +825,7 @@ def do_verify_prepare(args):
 
 
 def do_verify_apply(args):
-    cache_dir = args.cache_dir
+    cache_dir = os.path.abspath(args.cache_dir)
     results_path = args.results
 
     if not results_path:
@@ -829,7 +888,7 @@ def do_verify_apply(args):
         "totalRemoved": len(removed),
         "removed": removed,
     }
-    report_path = os.path.join(cache_dir, "phase1c", "_verify-report.json")
+    report_path = os.path.join(cache_dir, "phase1c", "tmp", "_verify-report.json")
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
 

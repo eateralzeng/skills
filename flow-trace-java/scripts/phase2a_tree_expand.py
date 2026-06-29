@@ -104,6 +104,11 @@ def do_init(args):
 
     tp = _tree_path(args.cache_dir, args.entry_id)
     pp = _progress_path(args.cache_dir, args.entry_id)
+
+    if os.path.exists(tp) or os.path.exists(pp):
+        print(f"ERROR: '{args.entry_id}' already initialized. Delete {tp} and {pp} to reinitialize.", file=sys.stderr)
+        sys.exit(1)
+
     _save_json(tp, tree)
     _save_json(pp, progress)
 
@@ -176,6 +181,9 @@ def build_node_id(fpath, method_name):
     return f'{module}:{full_class}:{method_name}'
 
 
+_RESOLVE_FALLBACK_WARNED = set()
+
+
 def _resolve_call_id(call):
     """Build child nodeId from a normalized call dict.
 
@@ -191,7 +199,77 @@ def _resolve_call_id(call):
     module = target_path.split('/')[0] if '/' in target_path else ''
     if module and target_class:
         return f"{module}:{target_class}:{target_method}"
+    # ISSUE-2a-24: 2-segment fallback (module missing). May cause dedup mismatch
+    # or false inconsistency in reconcile. Dedup warning per (class, method).
+    key = (target_class, target_method)
+    if key not in _RESOLVE_FALLBACK_WARNED:
+        _RESOLVE_FALLBACK_WARNED.add(key)
+        print(f"WARNING: 2-segment nodeId for {target_class}:{target_method} (no module info from targetFilePath). May cause dedup mismatch or false inconsistency.", file=sys.stderr)
     return f"{target_class}:{target_method}"
+
+
+def _create_child_node(call, parent_node, *, max_depth=None):
+    """Create a child node dict from a normalized call.
+
+    Centralizes child node creation logic shared by merge and reconcile-apply.
+    Handles DISPATCH semantics (patternRef), field defaults, DI normalization,
+    and "no source file → terminal" fallback.
+    """
+    child_id = _resolve_call_id(call)
+
+    # Field normalization: safe .get() everywhere (fixes ISSUE-2a-17)
+    target_method = call.get("targetMethod", "")
+
+    # Derive full class name from nodeId
+    # 3-segment: "module:pkg.ClassName:method" → parts[1]
+    # 2-segment (fallback): "pkg.ClassName:method" → parts[0]
+    parts = child_id.split(':')
+    if len(parts) >= 3:
+        full_class = parts[1]
+    elif len(parts) == 2:
+        full_class = parts[0]
+    else:
+        full_class = call.get("targetClass", "")
+
+    # DI normalization: infer DATABASE type from table/operation
+    di = call.get("domainInteraction")
+    if di and isinstance(di, dict) and not di.get("type") and (di.get("table") or di.get("operation")):
+        di = dict(di, type="DATABASE")
+
+    is_endpoint = call.get("isEndpoint", False)
+
+    child_node = {
+        "nodeId": child_id,
+        "class": full_class,
+        "method": target_method,
+        "package": call.get("targetPackage", ""),
+        "filePath": call.get("targetFilePath", ""),
+        "layer": parent_node["layer"] + 1,
+        "layerType": "TERMINAL" if is_endpoint else "INTERNAL",
+        "parentId": parent_node["nodeId"],
+        "callType": call.get("callType", "DIRECT"),
+        "terminal": is_endpoint,
+        "description": "",
+        "domainInteraction": di,
+        "children": [],
+    }
+
+    # DISPATCH semantics (fixes ISSUE-2a-15)
+    if call.get("endpointType") == "DISPATCH" or call.get("patternRef"):
+        child_node["terminal"] = True
+        child_node["layerType"] = "TERMINAL"
+        child_node["patternRef"] = call.get("patternRef", "")
+    # No source file → terminal (unifies prior implicit logic in merge)
+    elif not child_node["filePath"]:
+        child_node["terminal"] = True
+        child_node["layerType"] = "TERMINAL"
+
+    # ISSUE-2a-22: maxDepth 强制检查（编排器失误兜底）
+    if max_depth is not None and child_node["layer"] >= max_depth and not child_node["terminal"]:
+        child_node["terminal"] = True
+        child_node["layerType"] = "TERMINAL"
+
+    return child_node
 
 
 # ── Format normalization ────────────────────────────────────────────
@@ -302,6 +380,31 @@ def _count_children(nodes, parent_id):
     return sum(1 for n in nodes.values() if n.get("parentId") == parent_id)
 
 
+def _build_child_index(nodes):
+    """Build parentId -> [childIds] index from flat nodes dict."""
+    idx = {}
+    for nid, node in nodes.items():
+        pid = node.get("parentId")
+        if pid:
+            idx.setdefault(pid, []).append(nid)
+    return idx
+
+
+def _build_file_index(project_dir):
+    """Build shortClassName.java -> [relative_paths] index, once."""
+    if not project_dir:
+        return {}
+    index = {}
+    skip_dirs = {'.git', 'node_modules', 'target', 'build'}
+    for root, dirs, files in os.walk(project_dir):
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
+        for f in files:
+            if f.endswith('.java'):
+                rel = os.path.relpath(os.path.join(root, f), project_dir).replace('\\', '/')
+                index.setdefault(f, []).append(rel)
+    return index
+
+
 def do_merge(args):
     tp = _tree_path(args.cache_dir, args.entry_id)
     pp = _progress_path(args.cache_dir, args.entry_id)
@@ -342,63 +445,26 @@ def do_merge(args):
                 skipped_max += 1
                 continue
 
-            is_endpoint = call.get("isEndpoint", False)
-
-            # Derive full class name from nodeId
-            # 3-segment: "module:pkg.ClassName:method" → parts[1]
-            # 2-segment (fallback): "pkg.ClassName:method" → parts[0]
-            parts = child_id.split(':')
-            if len(parts) >= 3:
-                full_class = parts[1]
-            elif len(parts) == 2:
-                full_class = parts[0]
-            else:
-                full_class = call.get("targetClass", "")
-
-            # Normalize domainInteraction: if has table/operation but no type, add DATABASE
-            di = call.get("domainInteraction")
-            if di and isinstance(di, dict) and not di.get("type") and (di.get("table") or di.get("operation")):
-                di = dict(di, type="DATABASE")
-
-            child_node = {
-                "nodeId": child_id,
-                "class": full_class,
-                "method": call["targetMethod"],
-                "package": call.get("targetPackage", ""),
-                "filePath": call.get("targetFilePath", ""),
-                "layer": parent_node["layer"] + 1,
-                "layerType": "TERMINAL" if is_endpoint else "INTERNAL",
-                "parentId": parent_id,
-                "callType": call.get("callType", "DIRECT"),
-                "terminal": is_endpoint,
-                "description": "",
-                "domainInteraction": di,
-                "children": [],
-            }
-
-            # DISPATCH node: always terminal, carry patternRef
-            if call.get("endpointType") == "DISPATCH" or call.get("patternRef"):
-                child_node["terminal"] = True
-                child_node["layerType"] = "TERMINAL"
-                child_node["patternRef"] = call.get("patternRef", "")
+            child_node = _create_child_node(call, parent_node, max_depth=progress["maxDepth"])
 
             tree["nodes"][child_id] = child_node
             progress["totalNodes"] += 1
             parent_fanout += 1
             added += 1
 
-            # Terminal nodes, DISPATCH nodes, and nodes without source files don't need further expansion
-            if child_node.get("patternRef"):
-                pass  # DISPATCH node: skip expansion
-            elif not is_endpoint and child_node["filePath"]:
+            # Non-terminal nodes with source files need further expansion
+            if not child_node["terminal"] and child_node["filePath"]:
                 progress["pendingNodes"].append(child_id)
-            elif not child_node["filePath"]:
-                child_node["terminal"] = True
-                child_node["layerType"] = "TERMINAL"
 
-        # Remove this parent from pending
-        if parent_id in progress["pendingNodes"]:
-            progress["pendingNodes"].remove(parent_id)
+    # Batch remove processed parents from pending (O(n) total vs O(n*m) with list.remove)
+    completed = {r["nodeId"] for r in results.get("results", [])}
+    progress["pendingNodes"] = [n for n in progress["pendingNodes"] if n not in completed]
+    # Sync progress state with tree (avoids drift from reruns/reconcile-apply)
+    # Every tree node that is not currently pending has been expanded
+    all_nodes = set(tree["nodes"].keys())
+    pending = set(progress["pendingNodes"])
+    progress["expandedNodes"] = sorted(all_nodes - pending)
+    progress["totalNodes"] = len(tree["nodes"])
 
     _save_json(tp, tree)
     _save_json(pp, progress)
@@ -485,18 +551,20 @@ def do_backfill(args):
 
 # ── LLM Backfill modes ────────────────────────────────────────────
 
-def _resolve_file_path(class_name, project_dir):
-    """Try to find .java file for a class by searching project_dir."""
-    if not class_name or not project_dir:
+def _resolve_file_path(class_name, project_dir, file_index=None):
+    """Try to find .java file for a class. Uses pre-built index if available."""
+    if not class_name:
         return ""
-    # Convert com.webank.Foo → Foo.java
     short_name = class_name.rsplit('.', 1)[-1] + '.java'
+    if file_index is not None:
+        paths = file_index.get(short_name, [])
+        return paths[0] if paths else ""
+    if not project_dir:
+        return ""
     for root, dirs, files in os.walk(project_dir):
-        # Skip build output directories
         dirs[:] = [d for d in dirs if d not in ('.git', 'node_modules', 'target', 'build')]
         if short_name in files:
             full = os.path.join(root, short_name)
-            # Make relative to project_dir
             return os.path.relpath(full, project_dir).replace('\\', '/')
     return ""
 
@@ -505,6 +573,9 @@ def do_llm_backfill_prepare(args):
     """Scan all trees, collect nodes missing domainInteraction, build context for LLM."""
     phase2a_dir = os.path.join(args.cache_dir, "phase2a")
     project_dir = args.project_dir or ""
+
+    # Build file index once for all lookups (avoids repeated os.walk)
+    file_index = _build_file_index(project_dir) if project_dir else {}
 
     unique_missing = {}  # nodeId -> context
 
@@ -526,13 +597,13 @@ def do_llm_backfill_prepare(args):
 
                 # Try to resolve missing filePath from class name
                 file_path = node.get("filePath", "")
-                if not file_path and project_dir:
-                    file_path = _resolve_file_path(node.get("class", ""), project_dir)
+                if not file_path and file_index:
+                    file_path = _resolve_file_path(node.get("class", ""), "", file_index)
 
                 parent_file_path = parent_node.get("filePath", "") if parent_node else ""
-                if not parent_file_path and project_dir and parent_node:
+                if not parent_file_path and file_index and parent_node:
                     parent_file_path = _resolve_file_path(
-                        parent_node.get("class", ""), project_dir)
+                        parent_node.get("class", ""), "", file_index)
 
                 unique_missing[nid] = {
                     "nodeId": nid,
@@ -553,7 +624,7 @@ def do_llm_backfill_prepare(args):
         "nodes": nodes,
     }
 
-    output_path = os.path.join(phase2a_dir, "_llm-backfill-context.json")
+    output_path = os.path.join(phase2a_dir, "tmp", "_llm-backfill-context.json")
     _save_json(output_path, context)
 
     print(json.dumps({
@@ -569,7 +640,7 @@ def do_llm_backfill_apply(args):
     phase2a_dir = os.path.join(args.cache_dir, "phase2a")
 
     # Load context to know which entries are affected
-    context_path = os.path.join(phase2a_dir, "_llm-backfill-context.json")
+    context_path = os.path.join(phase2a_dir, "tmp", "_llm-backfill-context.json")
     if not os.path.exists(context_path):
         print("ERROR: context file not found. Run llm-backfill-prepare first.", file=sys.stderr)
         sys.exit(1)
@@ -768,7 +839,7 @@ def do_reconcile_prepare(args):
         "zeroCallSuspicious": zero_call_suspicious,
     }
 
-    output_path = os.path.join(phase2a_dir, "_reconcile-report.json")
+    output_path = os.path.join(phase2a_dir, "tmp", "_reconcile-report.json")
     _save_json(output_path, report)
 
     print(json.dumps({
@@ -781,16 +852,18 @@ def do_reconcile_prepare(args):
     }, indent=2))
 
 
-def _collect_subtree(tree, node_id):
+def _collect_subtree(tree, node_id, child_index=None):
     """Collect all descendant nodeIds of a given node (not including itself)."""
+    if child_index is None:
+        child_index = _build_child_index(tree["nodes"])
     descendants = []
     queue = [node_id]
     while queue:
         current = queue.pop(0)
-        for nid, node in tree["nodes"].items():
-            if node.get("parentId") == current and nid not in descendants:
-                descendants.append(nid)
-                queue.append(nid)
+        for child_id in child_index.get(current, []):
+            if child_id not in descendants:
+                descendants.append(child_id)
+                queue.append(child_id)
     return descendants
 
 
@@ -799,14 +872,14 @@ def do_reconcile_apply(args):
     phase2a_dir = os.path.join(args.cache_dir, "phase2a")
 
     # Load report
-    report_path = args.report or os.path.join(phase2a_dir, "_reconcile-report.json")
+    report_path = args.report or os.path.join(phase2a_dir, "tmp", "_reconcile-report.json")
     if not os.path.exists(report_path):
         print("ERROR: _reconcile-report.json not found. Run reconcile-prepare first.", file=sys.stderr)
         sys.exit(1)
     report = _load_json(report_path)
 
     # Load all re-analysis results from directory
-    results_dir = args.results or phase2a_dir
+    results_dir = args.results or os.path.join(phase2a_dir, "tmp")
     re_analysis = {}  # nodeId -> normalized calls
     if os.path.isdir(results_dir):
         for fname in sorted(os.listdir(results_dir)):
@@ -821,6 +894,35 @@ def do_reconcile_apply(args):
         data = _normalize_results(data)
         for item in data.get("results", []):
             re_analysis[item["nodeId"]] = item.get("calls", [])
+
+    # ISSUE-2a-21: 兜底从 bestEntry 复制子节点，避免不必要的 LLM 重分析
+    for inc in report.get("inconsistencies", []):
+        nid = inc["nodeId"]
+        if nid in re_analysis:
+            continue  # LLM 重分析结果优先
+        best_entry_id = inc.get("details", {}).get("bestEntry")
+        if not best_entry_id:
+            continue
+        best_tree_path = os.path.join(phase2a_dir, f"{best_entry_id}-tree.json")
+        if not os.path.exists(best_tree_path):
+            continue
+        best_tree = _load_json(best_tree_path)
+        calls = []
+        for child_node in best_tree["nodes"].values():
+            if child_node.get("parentId") == nid:
+                calls.append({
+                    "targetClass": child_node.get("class", ""),
+                    "targetMethod": child_node.get("method", ""),
+                    "targetFilePath": child_node.get("filePath", ""),
+                    "callType": child_node.get("callType", "DIRECT"),
+                    "isEndpoint": child_node.get("terminal", False),
+                    "endpointType": "DISPATCH" if child_node.get("patternRef") else None,
+                    "patternRef": child_node.get("patternRef"),
+                    "domainInteraction": child_node.get("domainInteraction"),
+                    "targetPackage": child_node.get("package", ""),
+                })
+        if calls:
+            re_analysis[nid] = calls
 
     if not re_analysis:
         print(json.dumps({
@@ -837,14 +939,18 @@ def do_reconcile_apply(args):
         if zc.get("suspicion") == "MEDIUM":
             nodes_to_fix.add(zc["nodeId"])
 
-    # Load all trees once
+    # Load all trees once with child index
     trees = {}
     for fname in sorted(os.listdir(phase2a_dir)):
         if not fname.endswith('-tree.json') or fname.startswith('_'):
             continue
         tp = os.path.join(phase2a_dir, fname)
         entry_id = fname.replace('-tree.json', '')
-        trees[entry_id] = {"path": tp, "tree": _load_json(tp), "dirty": False}
+        tree_data = _load_json(tp)
+        trees[entry_id] = {
+            "path": tp, "tree": tree_data, "dirty": False,
+            "child_index": _build_child_index(tree_data["nodes"]),
+        }
 
     affected_trees = {}  # entryId -> set of fixed nodeIds
     total_fixed = 0
@@ -868,7 +974,7 @@ def do_reconcile_apply(args):
                 continue
 
             node = tree["nodes"][nid]
-            old_children = [cid for cid, cn in tree["nodes"].items() if cn.get("parentId") == nid]
+            old_children = td["child_index"].get(nid, [])
             old_children_set = set(old_children)
 
             # Skip if already matches authoritative result
@@ -876,75 +982,64 @@ def do_reconcile_apply(args):
                 continue
 
             # Remove old subtree
-            descendants = _collect_subtree(tree, nid)
+            descendants = _collect_subtree(tree, nid, td["child_index"])
             for did in descendants:
-                del tree["nodes"][did]
-                total_removed += 1
+                if did in tree["nodes"]:
+                    del tree["nodes"][did]
+                    total_removed += 1
             for cid in old_children:
                 if cid in tree["nodes"]:
                     del tree["nodes"][cid]
                     total_removed += 1
 
-            # Fix parent node
-            node["terminal"] = False
-            node["layerType"] = "INTERNAL"
+            # Fix parent node (preserve DISPATCH semantics)
+            if not node.get("patternRef"):
+                node["terminal"] = False
+                node["layerType"] = "INTERNAL"
 
             # Re-create children from authoritative calls
             pp_path = os.path.join(phase2a_dir, f"{entry_id}-progress.json")
-            progress = _load_json(pp_path) if os.path.exists(pp_path) else None
+            if not os.path.exists(pp_path):
+                print(f"WARNING: progress not found for {entry_id}, skipping pending update", file=sys.stderr)
+                progress = None
+            else:
+                progress = _load_json(pp_path)
 
+            parent_fanout = 0
+            max_fanout = progress.get("maxFanout", 10) if progress else 10
             for call in authoritative_calls:
-                child_id = _resolve_call_id(call)
+                # Fanout check (fixes ISSUE-2a-33)
+                if parent_fanout >= max_fanout:
+                    break
+
+                max_depth = progress.get("maxDepth") if progress else None
+                child_node = _create_child_node(call, node, max_depth=max_depth)
 
                 # Dedup within tree
-                if child_id in tree["nodes"]:
+                if child_node["nodeId"] in tree["nodes"]:
                     continue
 
-                is_endpoint = call.get("isEndpoint", False)
-
-                parts = child_id.split(':')
-                if len(parts) >= 3:
-                    full_class = parts[1]
-                elif len(parts) == 2:
-                    full_class = parts[0]
-                else:
-                    full_class = call.get("targetClass", "")
-
-                di = call.get("domainInteraction")
-                if di and isinstance(di, dict) and not di.get("type") and (di.get("table") or di.get("operation")):
-                    di = dict(di, type="DATABASE")
-
-                child_node = {
-                    "nodeId": child_id,
-                    "class": full_class,
-                    "method": call.get("targetMethod", ""),
-                    "package": call.get("targetPackage", ""),
-                    "filePath": call.get("targetFilePath") or "",
-                    "layer": node["layer"] + 1,
-                    "layerType": "TERMINAL" if is_endpoint else "INTERNAL",
-                    "parentId": nid,
-                    "callType": call.get("callType", "DIRECT"),
-                    "terminal": is_endpoint,
-                    "description": "",
-                    "domainInteraction": di,
-                    "children": [],
-                }
-
-                tree["nodes"][child_id] = child_node
+                tree["nodes"][child_node["nodeId"]] = child_node
                 total_added += 1
+                parent_fanout += 1
 
-                if not is_endpoint and child_node["filePath"]:
-                    if progress and child_id not in progress.get("pendingNodes", []):
-                        progress["pendingNodes"].append(child_id)
-                elif not child_node["filePath"]:
-                    child_node["terminal"] = True
-                    child_node["layerType"] = "TERMINAL"
+                # Non-terminal nodes with source files need further expansion
+                if progress and not child_node["terminal"]:
+                    if child_node["nodeId"] not in progress.get("pendingNodes", []):
+                        progress["pendingNodes"].append(child_node["nodeId"])
 
+            td["child_index"] = _build_child_index(tree["nodes"])
             td["dirty"] = True
             affected_trees.setdefault(entry_id, set()).add(nid)
             total_fixed += 1
 
             if progress:
+                # Sync progress state with tree (same logic as merge mode)
+                all_nodes = set(td["tree"]["nodes"].keys())
+                pending = set(progress["pendingNodes"])
+                progress["expandedNodes"] = sorted(all_nodes - pending)
+                progress["totalNodes"] = len(td["tree"]["nodes"])
+                progress["pendingNodes"] = [n for n in progress["pendingNodes"] if n in all_nodes]
                 _save_json(pp_path, progress)
 
     # Save all dirty trees and re-run backfill
@@ -978,6 +1073,9 @@ MODES = {
 
 def main():
     args = parse_args()
+    args.cache_dir = os.path.abspath(args.cache_dir)
+    if hasattr(args, 'project_dir') and args.project_dir:
+        args.project_dir = os.path.abspath(args.project_dir)
     fn = MODES.get(args.mode)
     if fn:
         fn(args)

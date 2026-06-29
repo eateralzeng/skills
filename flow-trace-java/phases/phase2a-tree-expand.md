@@ -64,7 +64,20 @@
           - totalNodes >= maxNodes (500)
           - 任意节点 layer >= maxDepth (20)
 
-  3. LLM domainInteraction 补全（所有入口 BFS 完成后）：
+  3. 后校验补全（reconcile，所有入口 BFS 完成后、DI 补全前）：
+     a. 扫描不一致：
+        python3 phase2a_tree_expand.py --mode reconcile-prepare --cache-dir <cache>
+        → 输出 phase2a/tmp/_reconcile-report.json
+     b. 如果不一致节点数 > 0：
+        - 对每个 needReAnalysis=true 的节点，构造单节点 batch
+        - 派发子代理重新分析（复用 prompts/phase2a-discover.md 模板）
+        - 保存子代理输出到 phase2a/tmp/_reconcile-result-{N}.json
+        - 回写修正结果：
+          python3 phase2a_tree_expand.py --mode reconcile-apply --cache-dir <cache>
+     c. 如果不一致节点数 = 0：跳过
+     d. 如果 reconcile 引入了新的 pending 节点，对受影响的入口继续 BFS 循环直到 pending 为空
+
+  4. LLM domainInteraction 补全（reconcile 完成后）：
      a. 收集缺失节点：
         python3 phase2a_tree_expand.py --mode llm-backfill-prepare --cache-dir <cache> --project-dir <project>
      b. 如果缺失节点数 > 0：
@@ -73,19 +86,6 @@
         - 回写结果：
           python3 phase2a_tree_expand.py --mode llm-backfill-apply --cache-dir <cache> --results <output>
      c. 如果缺失节点数 = 0：跳过
-
-  4. 后校验补全（reconcile，所有入口 BFS 完成后、DI 补全前）：
-     a. 扫描不一致：
-        python3 phase2a_tree_expand.py --mode reconcile-prepare --cache-dir <cache>
-        → 输出 phase2a/_reconcile-report.json
-     b. 如果不一致节点数 > 0：
-        - 对每个 needReAnalysis=true 的节点，构造单节点 batch
-        - 派发子代理重新分析（复用 prompts/phase2a-discover.md 模板）
-        - 保存子代理输出到 phase2a/_reconcile-result-{N}.json
-        - 回写修正结果：
-          python3 phase2a_tree_expand.py --mode reconcile-apply --cache-dir <cache>
-     c. 如果不一致节点数 = 0：跳过
-     d. 如果 reconcile 引入了新的 pending 节点，对受影响的入口继续 BFS 循环直到 pending 为空
 
   5. 更新全局进度 progress.json
 ```

@@ -6,18 +6,22 @@
 
 - 分发点接口：`{{interface}}`
 - 接口方法：`{{interface_methods}}`
-- 分发类型：`{{dispatch_type}}`
+- 分发类型（仅供参考，UNKNOWN 时需自行判断）：`{{dispatch_type}}`
 - 实现类列表：
 
 ```json
 {{implementations}}
 ```
 
-- DB Schema Lookup：
-
+示例：
 ```json
-{{db_schema_lookup}}
+[
+  {"class": "com.webank.cbrc.bs.strategy.cust.impl.PersonQueryStrategy", "filePath": "cbrc-bs/src/main/java/com/webank/cbrc/bs/strategy/cust/impl/PersonQueryStrategy.java", "module": "cbrc-bs", "parentAbstract": "AbstractDispQueryRemoveStrategy"},
+  {"class": "com.webank.cbrc.bs.strategy.cust.impl.CorpQueryStrategy", "filePath": "cbrc-bs/src/main/java/com/webank/cbrc/bs/strategy/cust/impl/CorpQueryStrategy.java", "module": "cbrc-bs", "parentAbstract": ""}
+]
 ```
+
+- DB Schema Lookup：Read 文件 `{{db_schema_lookup_path}}`，取 `lookup` 字段
 
 - 项目源码根目录：`{{project_dir}}`
 
@@ -33,10 +37,20 @@
 
 ### 2. 提取路由条件
 
-查找 `support()`、`matches()`、`accept()`、`isSupport()` 等路由方法：
+查找路由方法或路由注解，按以下优先级尝试：
+
+**方法驱动路由**（查找 `support()`、`matches()`、`accept()`、`isSupport()` 等方法）：
 - 如果实现类自身有路由方法 → 直接提取条件
 - 如果路由方法在 `parentAbstract` 中 → 读父类路由方法，提取条件
 - 如果路由方法通过字段或构造函数注入的枚举/常量判断 → 提取条件值
+
+**注解驱动路由**（无方法路由时）：
+- `@ConditionalOnProperty(havingValue='xxx')` → 条件为 `Property=xxx`
+- `@ReconField(adaptorClass=XxxAdaptor.class)` → 条件为 `Adaptor=短类名`
+- 其他自定义注解中的条件字段 → 提取注解属性值
+
+**配置/枚举驱动**：
+- 构造函数或字段注入的枚举值 → 条件为 `EnumType.VALUE`
 
 **路由条件格式**：用简短的 `Key=Value` 格式描述，多个条件用逗号分隔。
 例如：`OrgType=PERSON, MeasureType=ACCT_QUERY`
@@ -45,7 +59,7 @@
 
 查找 `process()`、`handle()`、`execute()` 等核心业务方法（即 `interfaceMethods` 中的主要方法）：
 - 只保留以下类型的调用：
-  - **Mapper/Dao**：数据库操作终点
+  - **Mapper**（Dao 不是终点，如果 Dao 内部调用了 Mapper，提取 Mapper 调用作为终点）：数据库操作终点
   - **Client/Proxy**（带 @RmbClient）：外部调用终点
   - **RestTemplate/FeignClient**：HTTP 外部调用终点
   - **KafkaTemplate/JmsTemplate**：MQ 终点
@@ -91,7 +105,7 @@
 
 **字段说明**：
 - `interface`：与输入的接口全限定名完全一致
-- `dispatchType`：与输入的 dispatch_type 完全一致
+- `dispatchType`：分发类型，根据实现类的路由模式自行判断（STRATEGY_DISPATCH / STREAM_DISPATCH / ANNOTATION_DISPATCH / UNKNOWN）。当输入 dispatch_type 非 UNKNOWN 时与输入一致，为 UNKNOWN 时根据路由条件提取结果判断
 - `results`：每个实现类的分析结果
   - `class`：实现类全限定名
   - `shortName`：实现类短名

@@ -208,3 +208,37 @@
 - 禁止在多处重复定义同一文件的格式（单点事实）
 - 优先以脚本代码为准：当 phase 规格文件和脚本对同一输出格式有不同描述时，以脚本为准
 
+## 第九章：验证制品原则 (Verification Artifacts)
+
+**核心思想：每个产出关键数据的 phase 都应配套一个独立的 verify 脚本，作为 design 契约的「可执行校验视图」。verify 的价值在于能客观抓出 skill 自身的 bug——前提是它独立于被验证的代码。**
+
+### 原则 1：先产物，后校验 (Output-First)
+
+- 必须**先运行 phase、拿到真实产物**，再编写 verify。
+- 理由：① 真实产物暴露 design 没写全的字段/形状；② verify 需在真实数据上做正向测试；③ 真实数据才能暴露真实质量问题（如 phase2a verify 在真实数据上发现自环、condition=null、截断流）。
+- 流程：跑 phase → 读 `phaseX-design.md`（schema/决策）+ phase 代码（了解产物与意图）→ 基于 design 规格独立写 `verify_phaseX.py` → 真实产物上正向 + 破坏测试。
+
+### 原则 2：独立实现，不 import skill (Independent Reimplementation)
+
+- verify 脚本**严禁 import 被验证的 skill 模块**（解析、图遍历、表名正则等一律在 verify 内重新实现，以 design 规格为准）。
+- 理由：若 verify 复用 skill 代码，skill 的 bug 会被一起带进 verify、互相掩盖，验证形同虚设。只有独立实现，verify 才能抓出 skill 解析/逻辑的 bug。
+- 代价（接受）：表名正则、nodeId 构造等与 skill 重复一份；换来客观性 + skill 演进时 verify 仍稳定。
+
+### 原则 3：校验基准是 design 契约，不是 code (Spec as the Yardstick)
+
+- 判定对错的标准来自 **design 规格**（schema/不变量/决策），不是照抄 code 行为。
+- 读 code 只为「知道产物长什么样 + 理解意图」；若 verify 照着 code 写，code 有 bug 时 verify 会「跟着错、照样 pass」。
+- 必须以 design 当标尺，才能在 **code 偏离 design 时**报出来（如 code 漏实现 design 某步 → verify 视角下表现为产物不完整）。
+
+### 原则 4：分层报告 + 破坏测试 (Layered Report & Negative Testing)
+
+- 输出分层：✅ pass / ⚠️ warn / ❌ error；退出码 0=无 error、1=有 error（warn 不影响）。
+- 级别约定：违反 design 硬契约（schema 缺失、引用悬空、唯一性破坏）→ error；数据质量信号（可达性、保序、疑似漏标、截断流）→ warn。
+- 必须做**破坏测试**：人为改坏一个字段/引用，确认 verify 能报 error + 退出码 1，证明它真有检出能力。
+- graceful：产物缺失/初始态/空类型不 crash，降级为 warn。
+
+### 原则 5：制品沉淀 + 树级优于状态级 (Materialize & Tree-over-State)
+
+- verify 脚本落 `scripts/verify_phaseX.py`，配套 `design/phaseX-verify.md`（5 节：定位 / 维度表 / 用法 / 与 design 搭配 / 已知限制），design.md 索引登记，实测发现记入 issue-list。禁止用一次性临时脚本校验后即弃。
+- 校验「完整性/一致性」时，**优先基于最终产物（如 tree）做独立判定，而非依赖过程状态文件（如 progress）**——下游消费的是产物，过程状态可能与产物不同步（如某操作改了 tree 却没更新 progress，状态级校验会漏报）。
+

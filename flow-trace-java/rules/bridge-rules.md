@@ -27,15 +27,50 @@
 
 ## 匹配键
 
+### 数据字段映射
+
+发送端（Phase 2a tree.json 中的 RMB 终点节点）：
+
+```json
+"domainInteraction": {
+  "type": "EXTERNAL",
+  "direction": "OUT",
+  "target": "Class.method",
+  "protocol": "RMB",
+  "routingKeys": {
+    "topic": "实际 topic 值",
+    "transCode": "transCode 值或 null"
+  }
+}
+```
+
+接收端（entries.json 中的 RMB 入口）：
+
+```json
+{
+  "rmbTopic": "topic 值",
+  "transCode": "transCode 值或 null"
+}
+```
+
 ### 主匹配键：Topic 名称
 
+| 字段 | sender | receiver | 必须匹配 |
+|------|--------|----------|---------|
+| topic | routingKeys.topic | rmbTopic | 是 |
+
 - **精确匹配**（默认）：发送端和接收端的 Topic 字符串完全相同
-- **正则变换**（可选）：在下方 `topicTransform` 规则中定义正则，对 Topic 做预处理后匹配
+- **向后兼容**：如果 sender 缺少 routingKeys，fallback 到 `domainInteraction.target`（旧数据，匹配率低）
 
 ### 辅助匹配键：transCode
 
-- 仅当 `@RmbTopic` 和 `@AppHeaderArg` 中定义了 `transCode` 时启用
-- 匹配条件：`topic + transCode` 同时相同
+| 字段 | sender | receiver | 必须匹配 |
+|------|--------|----------|---------|
+| transCode | routingKeys.transCode | transCode | 否 |
+
+匹配条件：
+- 两边都有非 null 值时 → 必须相等
+- 其中一方为 null → transCode 不参与匹配，仅靠 topic 匹配
 - 应用场景：同一 Topic 下通过 transCode 多路复用
 
 ### topicTransform 规则

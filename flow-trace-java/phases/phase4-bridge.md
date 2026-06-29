@@ -28,12 +28,12 @@
 
 ## 前置条件
 
-- Phase 4（路径剪枝）已完成
+- Phase 3（路径剪枝）已完成
 - Phase 2b（分发点分析）已完成
 
 ## 执行步骤
 
-### 5a. DISPATCH 补充
+### 4a. DISPATCH 补充
 
 ```bash
 python3 <skill_dir>/scripts/phase4_dispatch_merge.py --cache-dir <cache_dir> --entries <entries_path>
@@ -63,11 +63,11 @@ python3 <skill_dir>/scripts/phase4_dispatch_merge.py --cache-dir <cache_dir> --e
 
 去重规则：多个实现类共享同一个 Mapper 方法时，只保留一个子节点，`dispatchImpl` 列出所有实现类。
 
-## 执行步骤
+## 桥接脚本执行步骤
 
 依次运行四个桥接脚本：
 
-### 5a. RMB 桥接
+### 4b. RMB 桥接
 
 ```bash
 python3 <skill_dir>/scripts/phase4_rmb_bridge.py --cache-dir <cache_dir> --entries <entries_path>
@@ -83,7 +83,7 @@ python3 <skill_dir>/scripts/phase4_rmb_bridge.py --cache-dir <cache_dir> --entri
    d. 未匹配：保持 STANDALONE_FLOW
 4. 非RMB流程：直接复制到 phase4
 
-### 4b. MQ 桥接
+### 4c. MQ 桥接
 
 ```bash
 python3 <skill_dir>/scripts/phase4_mq_bridge.py --cache-dir <cache_dir> --entries <entries_path> --project-dir <project_dir>
@@ -97,7 +97,7 @@ python3 <skill_dir>/scripts/phase4_mq_bridge.py --cache-dir <cache_dir> --entrie
 5. 匹配成功：创建合并流程（sender chain + BRIDGE + receiver stub）
 6. 未匹配：标记 UNMATCHED
 
-### 4c. Spring Event 桥接
+### 4d. Spring Event 桥接
 
 ```bash
 python3 <skill_dir>/scripts/phase4_event_bridge.py --cache-dir <cache_dir> --entries <entries_path> --project-dir <project_dir>
@@ -111,7 +111,7 @@ python3 <skill_dir>/scripts/phase4_event_bridge.py --cache-dir <cache_dir> --ent
 5. 匹配成功：创建合并流程（sender chain + BRIDGE + listener stub）
 6. 未匹配：标记 UNMATCHED
 
-### 4d. @Async 桥接
+### 4e. @Async 桥接
 
 ```bash
 python3 <skill_dir>/scripts/phase4_async_bridge.py --cache-dir <cache_dir> --entries <entries_path> --project-dir <project_dir>

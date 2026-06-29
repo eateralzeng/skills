@@ -119,12 +119,14 @@ def _node_summary(n, reason):
         "class": n["class"],
         "method": n["method"],
         "layer": n["layer"],
+        "layerType": n.get("layerType", ""),
         "reason": reason,
     }
 
 
 def main():
     args = parse_args()
+    args.cache_dir = os.path.abspath(args.cache_dir)
     entries = _load_json(args.entries)
 
     total_retained = 0
