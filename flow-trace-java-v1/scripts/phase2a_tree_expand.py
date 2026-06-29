@@ -731,7 +731,8 @@ def do_llm_backfill_apply(args):
 # ── mode: rmb-topic-backfill（确定性补 RMB 发送端 routingKeys.topic，design 4.3.5）──
 
 def do_rmb_topic_backfill(args):
-    """扫 RMB_EXTERNAL 节点，读 @RmbTopic（共享 _rmb_topic）填 routingKeys.topic（幂等）。"""
+    """扫 RMB 发送端节点（di: type=EXTERNAL+protocol=RMB，对齐 find_rmb_senders，决策14），
+    读 @RmbTopic（共享 _rmb_topic）填 routingKeys.topic（幂等）。"""
     cache_dir = os.path.abspath(args.cache_dir)
     project_dir = os.path.abspath(args.project_dir) if args.project_dir else "."
     phase2a_dir = os.path.join(cache_dir, "phase2a")
@@ -748,10 +749,12 @@ def do_rmb_topic_backfill(args):
         tree = _load_json(tp)
         dirty = False
         for node in tree.get("nodes", {}).values():
-            if node.get("endpointType") != "RMB_EXTERNAL":
-                continue
             di = node.get("domainInteraction")
             di = di if isinstance(di, dict) else {}
+            # 判据与 phase4_rmb_bridge.find_rmb_senders 一致（决策14 阶段0）：用 di（EXTERNAL+RMB）
+            # 而非 endpointType，避免 discover 标注发散（RMB/RMB_EXTERNAL）导致漏配 controller-004
+            if not (di.get("type") == "EXTERNAL" and di.get("protocol") == "RMB"):
+                continue
             rk = di.get("routingKeys") if isinstance(di.get("routingKeys"), dict) else {}
             if rk.get("topic"):
                 continue  # 幂等：已有 topic
